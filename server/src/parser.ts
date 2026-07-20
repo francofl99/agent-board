@@ -15,17 +15,12 @@ function isNoise(text: string): boolean {
   return NOISE_PREFIXES.some((p) => text.trimStart().startsWith(p));
 }
 
-const WORKING_FRESH_MS = 30 * 1000; // written < 30s ago => agent actively producing output
-
-// Infer runtime status from the last real message turn + how fresh the file is.
-// A finished assistant turn means the user's turn (timeless). A mid-turn state
-// (user just sent, or awaiting a tool) only counts as "working" while recent;
-// once stale it is an abandoned/interrupted session => idle.
-function deriveStatus(lastRole: string, lastStop: string | null, ageMs: number): SessionStatus {
-  if (ageMs < WORKING_FRESH_MS) return "working";
-  if (lastRole === "assistant" && lastStop !== "tool_use") return "waiting_user";
-  const midTurn = lastRole === "user" || (lastRole === "assistant" && lastStop === "tool_use");
-  if (midTurn) return ageMs < ACTIVE_WINDOW_MS ? "working" : "idle";
+// Infer status from the last real message turn (evaluated at sync time, i.e. when
+// there was activity): the agent closed its turn => waiting for the user; a pending
+// user message or an in-flight tool call => working; no messages => idle.
+function deriveStatus(lastRole: string, lastStop: string | null): SessionStatus {
+  if (lastRole === "assistant") return lastStop === "tool_use" ? "working" : "waiting_user";
+  if (lastRole === "user") return "working";
   return "idle";
 }
 
@@ -101,7 +96,7 @@ export async function parseSession(filePath: string, projectSlug: string): Promi
   return {
     id,
     provider: "claude",
-    status: deriveStatus(lastRole, lastStop, Date.now() - stat.mtimeMs),
+    status: deriveStatus(lastRole, lastStop),
     projectSlug,
     projectPath: cwd,
     gitBranch,
@@ -191,7 +186,7 @@ export async function parseCodexSession(filePath: string): Promise<RawSession | 
   return {
     id,
     provider: "codex",
-    status: deriveStatus(lastRole, null, Date.now() - stat.mtimeMs),
+    status: deriveStatus(lastRole, null),
     projectSlug: cwd ?? "codex",
     projectPath: cwd,
     gitBranch,

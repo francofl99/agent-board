@@ -342,14 +342,14 @@ export async function updateRow(cfg: NotionConfig, pageId: string, owned: Owned)
   await api(cfg, "PATCH", `/pages/${pageId}`, { properties: ownedToProps(owned) });
 }
 
-// Reconcile a live session against its existing row. Status is only refreshed when
-// the session had new activity (Last activity changed); otherwise we keep whatever
-// Status the row currently has, so a manual move on the board sticks until the
-// session moves again.
+// Reconcile a live session against its existing row. If the session had NO new
+// activity (Last activity unchanged), the row is left completely untouched — whatever
+// group the user moved it to stays. Only when there is new activity do we rewrite the
+// row, which re-derives Status (toggling working ↔ waiting as the turn changes).
 export function reconcile(existing: Partial<Owned>, s: RawSession): { changed: boolean; owned: Owned } {
   const owned = ownedOf(s);
   const activityChanged = dayMinute(existing.lastActivity ?? "") !== dayMinute(owned.lastActivity);
-  if (!activityChanged && existing.status) owned.status = existing.status;
+  if (!activityChanged) return { changed: false, owned };
   return { changed: !ownedEquals(existing, owned), owned };
 }
 
