@@ -133,10 +133,15 @@ one default table view). Add these by hand — one-time, ~1 min — for the full
 | **Estado** | Board | group by `Status`; sort by `Last activity` desc |
 | **Gestión** | Board | group by `Grupo` (your manual kanban) |
 | **Usage** | Table | group by `Modelo`; sort by `Tokens` desc; show `Provider`, `Tokens`, `Messages`, `PRs`. Set the `Tokens` column footer to **Sum** for per-model totals |
-| **Usage · tokens por modelo** | Chart (bar) | X = `Modelo`, Y = **Sum** of `Tokens` |
+| **Usage · tokens** | Chart (bar) | X = `Provider` (or `Status`), Y = **Sum** of `Tokens` |
 
-Reordering, creating and deleting columns is native to Notion. If you use Claude with
-the Notion connector, it can create these views for you programmatically.
+Notes:
+- **Charts must group by a `select` property** (`Provider`, `Status`), not a free-text
+  one — grouping a chart by `Modelo` (text) renders "something is wrong with your chart
+  data". For per-**model** totals use the **Usage** table's `Tokens` Sum footer.
+- The REST API has no endpoint to create views (any auth method), so this stays a
+  one-time manual step. If you use Claude with the Notion connector, it can create
+  these views for you programmatically.
 
 ## Roadmap
 
