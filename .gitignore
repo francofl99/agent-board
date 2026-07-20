@@ -6,3 +6,7 @@ dist/
 .env.*
 # Local runtime config that holds the Notion token — never commit
 notion.json
+
+# vite/build caches
+.vite/
+tsconfig.tsbuildinfo
