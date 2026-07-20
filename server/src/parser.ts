@@ -8,6 +8,9 @@ export const PROJECTS_DIR = path.join(os.homedir(), ".claude", "projects");
 export const CODEX_DIR = path.join(os.homedir(), ".codex", "sessions");
 const ACTIVE_WINDOW_MS = 10 * 60 * 1000; // session touched < 10 min ago => "active now"
 const MAX_LEN = 140;
+// GitHub PR URLs anywhere in the transcript (tool output, assistant text). The \d+
+// requirement naturally skips the "/pull/new/<branch>" create links.
+const PR_RE = /https?:\/\/github\.com\/[\w.-]+\/[\w.-]+\/pull\/\d+/g;
 
 // Wrapper blocks Codex injects into the first user turn; not real prompts.
 const NOISE_PREFIXES = ["<environment_context>", "<user_instructions>"];
@@ -57,10 +60,12 @@ export async function parseSession(filePath: string, projectSlug: string): Promi
   let lastStop: string | null = null;
   let lastMsgText = "";
   let lastMsgRole = "";
+  const prs = new Set<string>();
 
   const rl = readline.createInterface({ input: createReadStream(filePath), crlfDelay: Infinity });
   for await (const line of rl) {
     if (line.trim() === "") continue;
+    for (const m of line.matchAll(PR_RE)) prs.add(m[0]);
     let o: any;
     try {
       o = JSON.parse(line);
@@ -104,6 +109,7 @@ export async function parseSession(filePath: string, projectSlug: string): Promi
     preview,
     lastMessage: truncate(lastMsgText),
     lastMessageRole: lastMsgRole as "user" | "assistant" | "",
+    pullRequests: [...prs],
     messageCount,
     lastActivity,
     sizeBytes: stat.size,
@@ -143,10 +149,12 @@ export async function parseCodexSession(filePath: string): Promise<RawSession | 
   let lastRole = "";
   let lastMsgText = "";
   let lastMsgRole = "";
+  const prs = new Set<string>();
 
   const rl = readline.createInterface({ input: createReadStream(filePath), crlfDelay: Infinity });
   for await (const line of rl) {
     if (line.trim() === "") continue;
+    for (const m of line.matchAll(PR_RE)) prs.add(m[0]);
     let o: any;
     try {
       o = JSON.parse(line);
@@ -194,6 +202,7 @@ export async function parseCodexSession(filePath: string): Promise<RawSession | 
     preview,
     lastMessage: truncate(lastMsgText),
     lastMessageRole: lastMsgRole as "user" | "assistant" | "",
+    pullRequests: [...prs],
     messageCount,
     lastActivity: stat.mtime.toISOString(),
     sizeBytes: stat.size,

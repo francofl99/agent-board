@@ -127,6 +127,7 @@ export interface Owned {
   link: string;
   lastMessage: string;
   direction: string; // "Enviado" | "Recibido" | ""
+  prUrls: string[];
 }
 
 export function ownedOf(s: RawSession): Owned {
@@ -143,7 +144,24 @@ export function ownedOf(s: RawSession): Owned {
     link: deepLink(s),
     lastMessage: s.lastMessage,
     direction: DIRECTION_LABEL[s.lastMessageRole] ?? "",
+    prUrls: s.pullRequests,
   };
+}
+
+// "https://github.com/owner/repo/pull/123" -> "repo#123"
+function prLabel(url: string): string {
+  const m = url.match(/github\.com\/[^/]+\/([^/]+)\/pull\/(\d+)/);
+  return m ? `${m[1]}#${m[2]}` : url;
+}
+
+// Rich text with one clickable "repo#123" link per PR, separated by " · ".
+function prRichText(urls: string[]): { rich_text: unknown[] } {
+  const parts: unknown[] = [];
+  urls.forEach((u, i) => {
+    if (i > 0) parts.push({ text: { content: " · " } });
+    parts.push({ text: { content: prLabel(u), link: { url: u } } });
+  });
+  return { rich_text: parts };
 }
 
 function text(value: string) {
@@ -166,6 +184,7 @@ function ownedToProps(o: Owned): Record<string, unknown> {
     Link: { url: o.link === "" ? null : o.link },
     "Último mensaje": text(o.lastMessage),
     "Dirección": { select: o.direction === "" ? null : { name: o.direction } },
+    PRs: prRichText(o.prUrls),
   };
 }
 
@@ -236,6 +255,7 @@ const DB_SCHEMA = {
       ],
     },
   },
+  PRs: { rich_text: {} },
 };
 
 // First accessible page shared with the integration — used as the DB parent
@@ -270,6 +290,12 @@ function readText(prop: any): string {
   return arr.map((t: any) => t.plain_text ?? "").join("");
 }
 
+// Recover the PR URLs from the link hrefs of the rich-text segments.
+function readPrUrls(prop: any): string[] {
+  const arr = prop?.rich_text ?? [];
+  return arr.map((t: any) => t.href ?? t.text?.link?.url).filter((u: unknown): u is string => !!u);
+}
+
 // Map every existing row by its Session ID so we can diff before writing.
 export async function fetchExisting(cfg: NotionConfig): Promise<Map<string, ExistingPage>> {
   const out = new Map<string, ExistingPage>();
@@ -298,6 +324,7 @@ export async function fetchExisting(cfg: NotionConfig): Promise<Map<string, Exis
           link: p.Link?.url ?? "",
           lastMessage: readText(p["Último mensaje"]),
           direction: p["Dirección"]?.select?.name ?? "",
+          prUrls: readPrUrls(p.PRs),
         },
       });
     }
@@ -326,7 +353,8 @@ function ownedEquals(a: Partial<Owned>, b: Owned): boolean {
     (a.active ?? false) === b.active &&
     (a.link ?? "") === b.link &&
     (a.lastMessage ?? "") === b.lastMessage &&
-    (a.direction ?? "") === b.direction
+    (a.direction ?? "") === b.direction &&
+    (a.prUrls ?? []).join("\n") === b.prUrls.join("\n")
   );
 }
 
@@ -342,14 +370,15 @@ export async function updateRow(cfg: NotionConfig, pageId: string, owned: Owned)
   await api(cfg, "PATCH", `/pages/${pageId}`, { properties: ownedToProps(owned) });
 }
 
-// Reconcile a live session against its existing row. If the session had NO new
-// activity (Last activity unchanged), the row is left completely untouched — whatever
-// group the user moved it to stays. Only when there is new activity do we rewrite the
-// row, which re-derives Status (toggling working ↔ waiting as the turn changes).
+// Reconcile a live session against its existing row. Status is the only group-defining
+// field: when there is NO new activity (Last activity unchanged) we keep the row's
+// current Status, so a card the user moved between groups stays put. Every other field
+// (PRs, last message, etc.) is still refreshed, so metadata backfills without moving
+// the card. New activity re-derives Status too, toggling working ↔ waiting.
 export function reconcile(existing: Partial<Owned>, s: RawSession): { changed: boolean; owned: Owned } {
   const owned = ownedOf(s);
   const activityChanged = dayMinute(existing.lastActivity ?? "") !== dayMinute(owned.lastActivity);
-  if (!activityChanged) return { changed: false, owned };
+  if (!activityChanged && existing.status !== undefined) owned.status = existing.status;
   return { changed: !ownedEquals(existing, owned), owned };
 }
 

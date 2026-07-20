@@ -102,6 +102,7 @@ provider-owned ones and **never** touches `Grupo` or the page body (notes).
 | `Link` | URL | sync — deep link to open the session in the provider's app |
 | `Último mensaje` | Text | sync — preview of the last message with content |
 | `Dirección` | Select (`Enviado`, `Recibido`) | sync — was the last message sent (user) or received (agent) |
+| `PRs` | Text | sync — clickable `repo#123` links for every GitHub PR found in the transcript |
 
 ## Filters
 
