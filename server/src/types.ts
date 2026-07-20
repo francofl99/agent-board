@@ -15,6 +15,8 @@ export interface RawSession {
   lastMessage: string; // text of the last message that had content
   lastMessageRole: "user" | "assistant" | ""; // who sent that last message
   pullRequests: string[]; // GitHub PR URLs found in the transcript
+  model: string; // last model used in the session
+  tokensOut: number; // output tokens generated across the session
   messageCount: number;
   lastActivity: string; // ISO
   sizeBytes: number;

@@ -60,6 +60,8 @@ export async function parseSession(filePath: string, projectSlug: string): Promi
   let lastStop: string | null = null;
   let lastMsgText = "";
   let lastMsgRole = "";
+  let model = "";
+  let tokensOut = 0;
   const prs = new Set<string>();
 
   const rl = readline.createInterface({ input: createReadStream(filePath), crlfDelay: Infinity });
@@ -73,6 +75,10 @@ export async function parseSession(filePath: string, projectSlug: string): Promi
       continue;
     }
     const type = o.type;
+    if (type === "assistant") {
+      if (typeof o.message?.model === "string") model = o.message.model;
+      tokensOut += o.message?.usage?.output_tokens ?? 0;
+    }
     if (type === "custom-title" && typeof o.customTitle === "string") {
       customTitle = o.customTitle;
     } else if (type === "last-prompt" && typeof o.lastPrompt === "string") {
@@ -110,6 +116,8 @@ export async function parseSession(filePath: string, projectSlug: string): Promi
     lastMessage: truncate(lastMsgText),
     lastMessageRole: lastMsgRole as "user" | "assistant" | "",
     pullRequests: [...prs],
+    model,
+    tokensOut,
     messageCount,
     lastActivity,
     sizeBytes: stat.size,
@@ -149,6 +157,8 @@ export async function parseCodexSession(filePath: string): Promise<RawSession | 
   let lastRole = "";
   let lastMsgText = "";
   let lastMsgRole = "";
+  let model = "";
+  let tokensOut = 0;
   const prs = new Set<string>();
 
   const rl = readline.createInterface({ input: createReadStream(filePath), crlfDelay: Infinity });
@@ -161,8 +171,11 @@ export async function parseCodexSession(filePath: string): Promise<RawSession | 
     } catch {
       continue;
     }
+    const p = o.payload ?? {};
+    if (typeof p.model === "string") model = p.model;
+    const tu = p.info?.total_token_usage ?? p.total_token_usage;
+    if (tu?.output_tokens != null) tokensOut = tu.output_tokens; // cumulative, last wins
     if (o.type === "session_meta") {
-      const p = o.payload ?? {};
       if (p.id) id = p.id;
       if (p.cwd) cwd = p.cwd;
       if (p.git?.branch) gitBranch = p.git.branch;
@@ -203,6 +216,8 @@ export async function parseCodexSession(filePath: string): Promise<RawSession | 
     lastMessage: truncate(lastMsgText),
     lastMessageRole: lastMsgRole as "user" | "assistant" | "",
     pullRequests: [...prs],
+    model,
+    tokensOut,
     messageCount,
     lastActivity: stat.mtime.toISOString(),
     sizeBytes: stat.size,

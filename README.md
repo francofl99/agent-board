@@ -103,6 +103,8 @@ provider-owned ones and **never** touches `Grupo` or the page body (notes).
 | `Último mensaje` | Text | sync — preview of the last message with content |
 | `Dirección` | Select (`Enviado`, `Recibido`) | sync — was the last message sent (user) or received (agent) |
 | `PRs` | Text | sync — clickable `repo#123` links for every GitHub PR found in the transcript |
+| `Modelo` | Text | sync — last model used in the session |
+| `Tokens` | Number | sync — output tokens generated across the session |
 
 ## Filters
 

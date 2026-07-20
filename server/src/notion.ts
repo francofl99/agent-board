@@ -136,6 +136,8 @@ export interface Owned {
   lastMessage: string;
   direction: string; // "Enviado" | "Recibido" | ""
   prUrls: string[];
+  model: string;
+  tokens: number;
 }
 
 export function ownedOf(s: RawSession): Owned {
@@ -153,6 +155,8 @@ export function ownedOf(s: RawSession): Owned {
     lastMessage: s.lastMessage ? `💬 ${s.lastMessage}` : "",
     direction: DIRECTION_LABEL[s.lastMessageRole] ?? "",
     prUrls: s.pullRequests,
+    model: s.model ? `🧠 ${s.model}` : "",
+    tokens: s.tokensOut,
   };
 }
 
@@ -194,25 +198,38 @@ function ownedToProps(o: Owned): Record<string, unknown> {
     "Último mensaje": text(o.lastMessage),
     "Dirección": { select: o.direction === "" ? null : { name: o.direction } },
     PRs: prRichText(o.prUrls),
+    Modelo: text(o.model),
+    Tokens: { number: o.tokens },
   };
 }
 
 // --- HTTP ---
+const MAX_RETRIES = 5;
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+// Retries 429 (rate limit) and 5xx with backoff, honoring Retry-After when present.
 async function api(cfg: NotionConfig, method: string, endpoint: string, body?: unknown) {
-  const res = await fetch(`${API}${endpoint}`, {
-    method,
-    headers: {
-      Authorization: `Bearer ${cfg.token}`,
-      "Notion-Version": NOTION_VERSION,
-      "Content-Type": "application/json",
-    },
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
-  if (!res.ok) {
-    const detail = await res.text();
-    throw new Error(`Notion ${method} ${endpoint} → ${res.status}: ${detail.slice(0, 300)}`);
+  for (let attempt = 0; ; attempt++) {
+    const res = await fetch(`${API}${endpoint}`, {
+      method,
+      headers: {
+        Authorization: `Bearer ${cfg.token}`,
+        "Notion-Version": NOTION_VERSION,
+        "Content-Type": "application/json",
+      },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+    if (res.ok) return res.json();
+
+    const retryable = res.status === 429 || res.status >= 500;
+    if (!retryable || attempt >= MAX_RETRIES) {
+      const detail = await res.text();
+      throw new Error(`Notion ${method} ${endpoint} → ${res.status}: ${detail.slice(0, 300)}`);
+    }
+    const retryAfter = Number(res.headers.get("retry-after"));
+    const waitMs = retryAfter > 0 ? retryAfter * 1000 : Math.min(500 * 2 ** attempt, 10_000);
+    await sleep(waitMs);
   }
-  return res.json();
 }
 
 // --- Bootstrap: create the database from scratch ---
@@ -265,6 +282,8 @@ const DB_SCHEMA = {
     },
   },
   PRs: { rich_text: {} },
+  Modelo: { rich_text: {} },
+  Tokens: { number: {} },
 };
 
 // First accessible page shared with the integration — used as the DB parent
@@ -334,6 +353,8 @@ export async function fetchExisting(cfg: NotionConfig): Promise<Map<string, Exis
           lastMessage: readText(p["Último mensaje"]),
           direction: p["Dirección"]?.select?.name ?? "",
           prUrls: readPrUrls(p.PRs),
+          model: readText(p.Modelo),
+          tokens: p.Tokens?.number ?? 0,
         },
       });
     }
@@ -363,7 +384,9 @@ function ownedEquals(a: Partial<Owned>, b: Owned): boolean {
     (a.link ?? "") === b.link &&
     (a.lastMessage ?? "") === b.lastMessage &&
     (a.direction ?? "") === b.direction &&
-    (a.prUrls ?? []).join("\n") === b.prUrls.join("\n")
+    (a.prUrls ?? []).join("\n") === b.prUrls.join("\n") &&
+    (a.model ?? "") === b.model &&
+    (a.tokens ?? 0) === b.tokens
   );
 }
 
