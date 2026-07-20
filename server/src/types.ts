@@ -18,25 +18,3 @@ export interface RawSession {
   active: boolean; // derived from mtime window
   filePath: string;
 }
-
-export interface SessionState {
-  id: string;
-  column: string | null; // manual kanban column, null => derived bucket
-  notes: string;
-  archived: boolean;
-  lastReadAt: string; // ISO of when the user last opened this session ("" => never)
-  updatedAt: string;
-}
-
-export type Session = RawSession & { state: SessionState };
-
-// A board column. rule=null => manual bucket (cards land by explicit drag).
-// rule='active'|'inactive' => auto-fills by the session's live flag when unassigned.
-export type ColumnRule = "active" | "inactive" | null;
-
-export interface BoardColumn {
-  id: string;
-  label: string;
-  position: number;
-  rule: ColumnRule;
-}

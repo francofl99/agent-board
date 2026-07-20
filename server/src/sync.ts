@@ -1,10 +1,13 @@
 import { scanAllSessions } from "./parser.js";
 import {
   archiveRow,
+  createDatabase,
   createRow,
   fetchExisting,
+  findAccessiblePage,
   loadConfig,
   needsUpdate,
+  persistDatabaseId,
   shouldSync,
   updateRow,
 } from "./notion.js";
@@ -68,11 +71,35 @@ function providersFromArgv(): NotionConfig["providers"] | undefined {
   return list.length > 0 ? (list as NotionConfig["providers"]) : undefined;
 }
 
+// Create the database on first run when no databaseId is configured.
+async function ensureDatabase(cfg: NotionConfig): Promise<void> {
+  if (cfg.databaseId !== "") return;
+  let parent = cfg.parentPageId;
+  if (parent === "") {
+    const found = await findAccessiblePage(cfg);
+    if (!found) {
+      throw new Error(
+        "No database and no accessible page. Share one page with the integration " +
+          "(Notion → ••• → Connections), then run again. Optionally set parentPageId in config."
+      );
+    }
+    parent = found;
+    console.log(`Sin databaseId ni parentPageId → uso la primera página accesible: ${parent}`);
+  }
+  const id = await createDatabase(cfg, parent);
+  persistDatabaseId(id);
+  cfg.databaseId = id;
+  const clean = id.replace(/-/g, "");
+  console.log(`Base creada → https://notion.so/${clean} (guardada en config)`);
+  console.log("Sugerencia: agregá una vista Board agrupada por Status o Grupo en Notion.");
+}
+
 async function main() {
   const cfg = loadConfig();
   const cliProviders = providersFromArgv();
   if (cliProviders !== undefined) cfg.providers = cliProviders;
   const once = process.argv.includes("--once");
+  await ensureDatabase(cfg);
   const provLabel = cfg.providers ? cfg.providers.join(",") : "todos";
   console.log(
     `Notion sync → db ${cfg.databaseId} · proveedores ${provLabel} · ` +

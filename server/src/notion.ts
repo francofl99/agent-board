@@ -1,14 +1,16 @@
 import os from "node:os";
 import path from "node:path";
-import { readFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import type { Provider, RawSession, SessionStatus } from "./types.js";
 
 const NOTION_VERSION = "2022-06-28";
 const API = "https://api.notion.com/v1";
+const CONFIG_PATH = path.join(os.homedir(), ".agent-board", "notion.json");
 
 export interface NotionConfig {
   token: string;
-  databaseId: string;
+  databaseId: string; // target DB; may be "" and auto-created on first run
+  parentPageId: string; // where to create the DB when databaseId is empty ("" => auto-discover)
   intervalMs: number;
   sinceDays: number | null; // keep sessions touched within N days (null => no limit)
   onlyActive: boolean; // keep only sessions currently flagged active
@@ -32,27 +34,39 @@ function parseProviders(raw: unknown): Provider[] | null {
 
 // Config resolution: env vars win, then ~/.agent-board/notion.json.
 export function loadConfig(): NotionConfig {
-  const file = path.join(os.homedir(), ".agent-board", "notion.json");
   let fromFile: Partial<NotionConfig> = {};
   try {
-    fromFile = JSON.parse(readFileSync(file, "utf8"));
+    fromFile = JSON.parse(readFileSync(CONFIG_PATH, "utf8"));
   } catch {
     /* no file is fine */
   }
   const token = process.env.NOTION_TOKEN ?? fromFile.token ?? "";
   const databaseId = process.env.NOTION_DATABASE_ID ?? fromFile.databaseId ?? "";
+  const parentPageId = process.env.NOTION_PARENT_PAGE_ID ?? fromFile.parentPageId ?? "";
   const intervalMs = Number(process.env.SYNC_INTERVAL_MS ?? fromFile.intervalMs ?? 30000);
   const rawSince = process.env.SYNC_SINCE_DAYS ?? fromFile.sinceDays ?? null;
   const sinceDays = rawSince === null || rawSince === "" ? null : Number(rawSince) || null;
   const onlyActive = (process.env.SYNC_ONLY_ACTIVE ?? String(fromFile.onlyActive ?? "")) === "true";
   const providers = parseProviders(process.env.SYNC_PROVIDERS ?? (fromFile as any).providers ?? null);
-  if (token === "" || databaseId === "") {
+  if (token === "") {
     throw new Error(
-      "Missing Notion config. Set NOTION_TOKEN and NOTION_DATABASE_ID (env) " +
-        "or create ~/.agent-board/notion.json with { token, databaseId, intervalMs }."
+      "Missing Notion token. Set NOTION_TOKEN (env) or add \"token\" to " +
+        "~/.agent-board/notion.json. The database is created automatically on first run."
     );
   }
-  return { token, databaseId, intervalMs, sinceDays, onlyActive, providers };
+  return { token, databaseId, parentPageId, intervalMs, sinceDays, onlyActive, providers };
+}
+
+// Persist the auto-created databaseId back to the config file for future runs.
+export function persistDatabaseId(databaseId: string): void {
+  let current: Record<string, unknown> = {};
+  try {
+    current = JSON.parse(readFileSync(CONFIG_PATH, "utf8"));
+  } catch {
+    /* file may not exist when configured purely via env */
+  }
+  current.databaseId = databaseId;
+  writeFileSync(CONFIG_PATH, JSON.stringify(current, null, 2) + "\n");
 }
 
 // Which sessions the sync should keep in Notion, per the configured filters.
@@ -83,6 +97,17 @@ function projectName(s: RawSession): string {
   return s.projectSlug.split("-").filter(Boolean).pop() || s.projectSlug;
 }
 
+// Deep link that opens the session in the provider's app.
+// Claude Desktop handles `claude://resume?session=<uuid>` (optional &folder=<cwd>).
+// Codex/OpenCode have no known desktop deep link yet.
+function deepLink(s: RawSession): string {
+  if (s.provider === "claude") {
+    const folder = s.projectPath ? `&folder=${encodeURIComponent(s.projectPath)}` : "";
+    return `claude://resume?session=${s.id}${folder}`;
+  }
+  return "";
+}
+
 // Flat snapshot of the fields the backend owns, for diffing + writing.
 export interface Owned {
   name: string;
@@ -108,7 +133,7 @@ export function ownedOf(s: RawSession): Owned {
     messages: s.messageCount,
     lastActivity: s.lastActivity,
     active: s.active,
-    link: s.filePath,
+    link: deepLink(s),
   };
 }
 
@@ -129,7 +154,7 @@ function ownedToProps(o: Owned): Record<string, unknown> {
     Messages: { number: o.messages },
     "Last activity": { date: { start: o.lastActivity } },
     Active: { checkbox: o.active },
-    Link: text(o.link),
+    Link: { url: o.link === "" ? null : o.link },
   };
 }
 
@@ -149,6 +174,70 @@ async function api(cfg: NotionConfig, method: string, endpoint: string, body?: u
     throw new Error(`Notion ${method} ${endpoint} → ${res.status}: ${detail.slice(0, 300)}`);
   }
   return res.json();
+}
+
+// --- Bootstrap: create the database from scratch ---
+
+// Full schema, so a fresh install produces the same DB the sync expects.
+const DB_SCHEMA = {
+  Name: { title: {} },
+  "Session ID": { rich_text: {} },
+  Provider: {
+    select: {
+      options: [
+        { name: "Claude", color: "orange" },
+        { name: "Codex", color: "green" },
+        { name: "OpenCode", color: "yellow" },
+      ],
+    },
+  },
+  Status: {
+    select: {
+      options: [
+        { name: "Trabajando", color: "yellow" },
+        { name: "Esperando respuesta", color: "blue" },
+        { name: "Inactiva", color: "gray" },
+      ],
+    },
+  },
+  Grupo: {
+    select: {
+      options: [
+        { name: "En progreso", color: "blue" },
+        { name: "Revisar", color: "purple" },
+        { name: "Archivada", color: "gray" },
+      ],
+    },
+  },
+  Project: { rich_text: {} },
+  Path: { rich_text: {} },
+  Branch: { rich_text: {} },
+  Messages: { number: {} },
+  "Last activity": { date: {} },
+  Active: { checkbox: {} },
+  Link: { url: {} },
+};
+
+// First accessible page shared with the integration — used as the DB parent
+// when neither databaseId nor parentPageId is configured.
+export async function findAccessiblePage(cfg: NotionConfig): Promise<string | null> {
+  const res: any = await api(cfg, "POST", "/search", {
+    filter: { property: "object", value: "page" },
+    page_size: 10,
+  });
+  const page = (res.results ?? []).find((r: any) => r.object === "page");
+  return page?.id ?? null;
+}
+
+// Create the Agent Board database under the given parent page. Returns its id.
+export async function createDatabase(cfg: NotionConfig, parentPageId: string): Promise<string> {
+  const res: any = await api(cfg, "POST", "/databases", {
+    parent: { type: "page_id", page_id: parentPageId },
+    title: [{ type: "text", text: { content: "Agent Board" } }],
+    icon: { type: "emoji", emoji: "🤖" },
+    properties: DB_SCHEMA,
+  });
+  return res.id;
 }
 
 interface ExistingPage {
@@ -186,7 +275,7 @@ export async function fetchExisting(cfg: NotionConfig): Promise<Map<string, Exis
           messages: p.Messages?.number ?? 0,
           lastActivity: p["Last activity"]?.date?.start ?? "",
           active: p.Active?.checkbox ?? false,
-          link: readText(p.Link),
+          link: p.Link?.url ?? "",
         },
       });
     }

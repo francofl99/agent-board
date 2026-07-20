@@ -1,15 +1,13 @@
 # Agent Board
 
-A local dashboard for the AI coding-agent sessions on your machine — **Claude Code**,
-**Codex**, and (soon) **OpenCode** — as movable kanban cards.
+Sync your local AI coding-agent sessions — **Claude Code**, **Codex**, and (soon)
+**OpenCode** — into a Notion database you can organize like a kanban board.
 
 Agent providers keep every session as an append-only JSONL transcript on disk but
 expose no API to list or monitor them. Agent Board reads those files (read-only),
-derives a live status for each session, and lets you organize them — either in a
-built-in localhost board or by syncing them into a Notion database.
-
-Your own organization (kanban column, notes, read/unread) lives in a separate store
-and **never touches the provider's files**.
+derives a live status for each session, and upserts them into Notion. Your own
+organization (the `Grupo` column, notes) lives in Notion and is **never overwritten**
+by the sync.
 
 ## Features
 
@@ -18,47 +16,75 @@ and **never touches the provider's files**.
   - `working` — file written seconds ago, or mid-turn (tool running / user just sent).
   - `waiting_user` — the agent finished its turn; the ball is in your court.
   - `idle` — stale / abandoned mid-turn / no activity.
-- **Live updates** via filesystem watch + SSE (localhost board refreshes itself).
-- **Two surfaces**:
-  - **Localhost board** — Vue kanban with drag & drop, filters (provider / project /
-    status), notes, unread markers, manageable columns.
-  - **Notion sync** — push sessions into a Notion database and manage them there
-    (board views, mobile, collaboration).
+- **Deep links** — each row's `Link` opens the session in the provider's app
+  (Claude: `claude://resume?session=<uuid>&folder=<cwd>`).
+- **Zero-setup database** — created automatically on first run; you only provide a token.
+- **Diff-based, rate-limit-friendly** — only changed rows are patched.
+- **Filters** — sync a subset by provider, recency, or activity to stay within Notion's
+  free block limit.
 
 ## Architecture
 
 ```
 ~/.claude/projects/**/*.jsonl          providers' transcripts (read-only source)
 ~/.codex/sessions/**/*.jsonl
-        │  chokidar watch + parser + status derivation
+        │  parser + status derivation
         ▼
-   server (Express)
-    ├── REST + SSE  ──►  web (Vue 3 + Vite)      → localhost board
-    ├── SQLite (~/.agent-board/state.db)          → your columns / notes / unread
-    └── notion sync (diff-based upsert)  ──►  Notion database
+   sync (diff-based upsert)  ──►  Notion database
 ```
 
-## Quick start (localhost board)
+## Setup (from zero — you only need a token)
 
-Two terminals:
+1. Create an internal integration at <https://www.notion.so/my-integrations> and copy
+   its token (`ntn_...` / `secret_...`).
+2. In Notion, pick or create a page to hold the board and **share it with the
+   integration**: page → `•••` → **Connections** → add your integration.
+   *(Notion's API can't create a workspace or a top-level page from just a token, so one
+   shared page is the minimum.)*
+3. Give the tool your token — either `~/.agent-board/notion.json`
+   (copy `server/notion.example.json`) or `export NOTION_TOKEN=ntn_...`.
+4. Run the sync. **On first run the database is created automatically**, its
+   `databaseId` is written back to your config, and the sync begins. Then add a Board
+   view in Notion (grouped by `Status` or `Grupo`) for the kanban look.
 
 ```bash
-# backend  → http://localhost:4317
-cd server && npm install && npm run dev
-
-# frontend → http://localhost:5173  (proxies /api to the backend)
-cd web && npm install && npm run dev
+cd server
+npm install
+npm run sync:once   # bootstraps the DB on first run, then backfills
+npm run sync        # loop every intervalMs
 ```
 
-Open http://localhost:5173.
+### Where it creates / syncs
 
-## Notion sync (optional)
+Resolved in order (config file, or the matching `NOTION_*` env var):
 
-Use a Notion database as the management surface.
+| Config | Env | Behavior |
+|--------|-----|----------|
+| `databaseId` | `NOTION_DATABASE_ID` | sync into that database |
+| `parentPageId` | `NOTION_PARENT_PAGE_ID` | create the DB under that page, then sync |
+| neither | — | create under the first page shared with the integration |
 
-### 1. Create the database
+The `databaseId` is filled into the config automatically after the first run — delete
+it to bootstrap a fresh database again.
 
-Create a Notion database with these properties (types matter):
+### Config file
+
+```jsonc
+// ~/.agent-board/notion.json  (only "token" is required)
+{
+  "token": "ntn_...",
+  "parentPageId": "optional_page_id_where_the_db_is_created",
+  "intervalMs": 30000,
+  "sinceDays": 14,
+  "onlyActive": false,
+  "providers": ["claude"]
+}
+```
+
+## Database schema
+
+The auto-created database uses these properties. The sync only writes the
+provider-owned ones and **never** touches `Grupo` or the page body (notes).
 
 | Property | Type | Written by |
 |----------|------|-----------|
@@ -73,45 +99,9 @@ Create a Notion database with these properties (types matter):
 | `Messages` | Number | sync |
 | `Last activity` | Date | sync |
 | `Active` | Checkbox | sync |
-| `Link` | Text | sync |
+| `Link` | URL | sync — deep link to open the session in the provider's app |
 
-The sync only writes provider-owned properties and **never** touches `Grupo` or the
-page body (notes), so those stay yours.
-
-### 2. Connect an integration
-
-1. Create an internal integration at <https://www.notion.so/my-integrations> and copy
-   its token (`ntn_...` / `secret_...`).
-2. Open the database → `•••` → **Connections** → add your integration.
-
-### 3. Configure
-
-Copy `server/notion.example.json` to `~/.agent-board/notion.json` and fill it in
-(or use the `NOTION_TOKEN` / `NOTION_DATABASE_ID` environment variables):
-
-```json
-{
-  "token": "ntn_...",
-  "databaseId": "your_notion_database_id",
-  "intervalMs": 30000,
-  "sinceDays": 14,
-  "onlyActive": false,
-  "providers": ["claude"]
-}
-```
-
-### 4. Run
-
-```bash
-cd server
-npm run sync:once   # one pass (backfill / test)
-npm run sync        # loop every intervalMs
-```
-
-Steady state is diff-based: only rows whose data changed get a `PATCH`, so it stays
-well under Notion's rate limit.
-
-### Filters
+## Filters
 
 Notion's free plan caps total blocks; syncing everything can fill it. Filter what
 gets synced (config file, env var, or CLI flag). Rows that stop matching are moved to
@@ -128,30 +118,17 @@ npm run sync:once -- --providers claude       # CLI override wins over config/en
 SYNC_PROVIDERS=claude,codex npm run sync
 ```
 
-### Board views in Notion
+## Board views in Notion
 
 Add a **Board** view grouped by `Status` (live state) or by `Grupo` (your manual
 kanban). Reordering, creating and deleting columns is native to Notion.
-
-## Configuration reference
-
-| Setting | Where | Default |
-|---------|-------|---------|
-| Backend port | `PORT` env | `4317` |
-| Notion token | `NOTION_TOKEN` env / `notion.json` | — |
-| Database id | `NOTION_DATABASE_ID` env / `notion.json` | — |
-| Sync interval | `SYNC_INTERVAL_MS` env / `notion.json` | `30000` |
-| Providers / Since / Active | see Filters table | all / no limit / false |
-
-App state (columns, notes, unread) and the Notion token live under
-`~/.agent-board/` — outside the repo.
 
 ## Roadmap
 
 - OpenCode provider (it exposes an HTTP server with SSE — richer than file tailing).
 - Sharper `working` detection by correlating with running agent processes (pgrep + cwd).
-- Package the localhost board as a desktop app (Tauri / Electron).
-- Full-text search over transcripts.
+- Deep links for Codex / OpenCode.
+- Full-text search / richer card content (transcript excerpts).
 
 ## License
 

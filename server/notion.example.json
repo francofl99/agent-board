@@ -1,6 +1,6 @@
 {
   "token": "ntn_or_secret_your_internal_integration_token",
-  "databaseId": "your_notion_database_id",
+  "parentPageId": "optional_page_id_where_the_db_is_created",
   "intervalMs": 30000,
   "sinceDays": 14,
   "onlyActive": false,
