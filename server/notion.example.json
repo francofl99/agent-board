@@ -1,0 +1,8 @@
+{
+  "token": "ntn_or_secret_your_internal_integration_token",
+  "databaseId": "your_notion_database_id",
+  "intervalMs": 30000,
+  "sinceDays": 14,
+  "onlyActive": false,
+  "providers": ["claude", "codex"]
+}
