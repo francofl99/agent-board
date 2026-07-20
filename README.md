@@ -123,10 +123,20 @@ npm run sync:once -- --providers claude       # CLI override wins over config/en
 SYNC_PROVIDERS=claude,codex npm run sync
 ```
 
-## Board views in Notion
+## Recommended views
 
-Add a **Board** view grouped by `Status` (live state) or by `Grupo` (your manual
-kanban). Reordering, creating and deleting columns is native to Notion.
+The Notion REST API can't create views, so the sync only creates the database (with
+one default table view). Add these by hand — one-time, ~1 min — for the full setup:
+
+| View | Type | Config |
+|------|------|--------|
+| **Estado** | Board | group by `Status`; sort by `Last activity` desc |
+| **Gestión** | Board | group by `Grupo` (your manual kanban) |
+| **Usage** | Table | group by `Modelo`; sort by `Tokens` desc; show `Provider`, `Tokens`, `Messages`, `PRs`. Set the `Tokens` column footer to **Sum** for per-model totals |
+| **Usage · tokens por modelo** | Chart (bar) | X = `Modelo`, Y = **Sum** of `Tokens` |
+
+Reordering, creating and deleting columns is native to Notion. If you use Claude with
+the Notion connector, it can create these views for you programmatically.
 
 ## Roadmap
 

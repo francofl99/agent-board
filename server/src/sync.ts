@@ -95,7 +95,11 @@ async function ensureDatabase(cfg: NotionConfig): Promise<void> {
   cfg.databaseId = id;
   const clean = id.replace(/-/g, "");
   console.log(`Base creada → https://notion.so/${clean} (guardada en config)`);
-  console.log("Sugerencia: agregá una vista Board agrupada por Status o Grupo en Notion.");
+  console.log("Vistas recomendadas (crealas en Notion — la API REST no crea vistas):");
+  console.log("  • Estado: Board agrupado por Status");
+  console.log("  • Usage: Table agrupada por Modelo, orden Tokens desc");
+  console.log("  • Usage chart: Bar, sum(Tokens) por Modelo");
+  console.log("  Ver README → 'Recommended views'.");
 }
 
 async function main() {
