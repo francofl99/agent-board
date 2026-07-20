@@ -100,6 +100,8 @@ provider-owned ones and **never** touches `Grupo` or the page body (notes).
 | `Last activity` | Date | sync |
 | `Active` | Checkbox | sync |
 | `Link` | URL | sync — deep link to open the session in the provider's app |
+| `Último mensaje` | Text | sync — preview of the last message with content |
+| `Dirección` | Select (`Enviado`, `Recibido`) | sync — was the last message sent (user) or received (agent) |
 
 ## Filters
 

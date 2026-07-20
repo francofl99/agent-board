@@ -60,6 +60,8 @@ export async function parseSession(filePath: string, projectSlug: string): Promi
   let messageCount = 0;
   let lastRole = "";
   let lastStop: string | null = null;
+  let lastMsgText = "";
+  let lastMsgRole = "";
 
   const rl = readline.createInterface({ input: createReadStream(filePath), crlfDelay: Infinity });
   for await (const line of rl) {
@@ -84,6 +86,10 @@ export async function parseSession(filePath: string, projectSlug: string): Promi
       const text = extractText(o.message?.content);
       if (type === "user" && firstUserText === "" && text !== "") firstUserText = text;
       if (type === "assistant" && text !== "") lastAssistantText = text;
+      if (text !== "") {
+        lastMsgText = text;
+        lastMsgRole = type;
+      }
     }
   }
 
@@ -101,6 +107,8 @@ export async function parseSession(filePath: string, projectSlug: string): Promi
     gitBranch,
     title,
     preview,
+    lastMessage: truncate(lastMsgText),
+    lastMessageRole: lastMsgRole as "user" | "assistant" | "",
     messageCount,
     lastActivity,
     sizeBytes: stat.size,
@@ -138,6 +146,8 @@ export async function parseCodexSession(filePath: string): Promise<RawSession | 
   let lastAssistantText = "";
   let messageCount = 0;
   let lastRole = "";
+  let lastMsgText = "";
+  let lastMsgRole = "";
 
   const rl = readline.createInterface({ input: createReadStream(filePath), crlfDelay: Infinity });
   for await (const line of rl) {
@@ -164,9 +174,13 @@ export async function parseCodexSession(filePath: string): Promise<RawSession | 
         if (!isNoise(text)) {
           if (firstUserText === "") firstUserText = text;
           lastUserText = text;
+          lastMsgText = text;
+          lastMsgRole = role;
         }
       } else {
         lastAssistantText = text;
+        lastMsgText = text;
+        lastMsgRole = role;
       }
     }
   }
@@ -183,6 +197,8 @@ export async function parseCodexSession(filePath: string): Promise<RawSession | 
     gitBranch,
     title,
     preview,
+    lastMessage: truncate(lastMsgText),
+    lastMessageRole: lastMsgRole as "user" | "assistant" | "",
     messageCount,
     lastActivity: stat.mtime.toISOString(),
     sizeBytes: stat.size,

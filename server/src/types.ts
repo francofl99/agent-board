@@ -12,6 +12,8 @@ export interface RawSession {
   gitBranch: string | null;
   title: string;
   preview: string;
+  lastMessage: string; // text of the last message that had content
+  lastMessageRole: "user" | "assistant" | ""; // who sent that last message
   messageCount: number;
   lastActivity: string; // ISO
   sizeBytes: number;

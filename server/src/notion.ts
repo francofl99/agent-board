@@ -109,6 +109,11 @@ function deepLink(s: RawSession): string {
 }
 
 // Flat snapshot of the fields the backend owns, for diffing + writing.
+const DIRECTION_LABEL: Record<string, string> = {
+  user: "Enviado",
+  assistant: "Recibido",
+};
+
 export interface Owned {
   name: string;
   provider: string;
@@ -120,6 +125,8 @@ export interface Owned {
   lastActivity: string;
   active: boolean;
   link: string;
+  lastMessage: string;
+  direction: string; // "Enviado" | "Recibido" | ""
 }
 
 export function ownedOf(s: RawSession): Owned {
@@ -134,6 +141,8 @@ export function ownedOf(s: RawSession): Owned {
     lastActivity: s.lastActivity,
     active: s.active,
     link: deepLink(s),
+    lastMessage: s.lastMessage,
+    direction: DIRECTION_LABEL[s.lastMessageRole] ?? "",
   };
 }
 
@@ -155,6 +164,8 @@ function ownedToProps(o: Owned): Record<string, unknown> {
     "Last activity": { date: { start: o.lastActivity } },
     Active: { checkbox: o.active },
     Link: { url: o.link === "" ? null : o.link },
+    "Último mensaje": text(o.lastMessage),
+    "Dirección": { select: o.direction === "" ? null : { name: o.direction } },
   };
 }
 
@@ -216,6 +227,15 @@ const DB_SCHEMA = {
   "Last activity": { date: {} },
   Active: { checkbox: {} },
   Link: { url: {} },
+  "Último mensaje": { rich_text: {} },
+  "Dirección": {
+    select: {
+      options: [
+        { name: "Enviado", color: "blue" },
+        { name: "Recibido", color: "green" },
+      ],
+    },
+  },
 };
 
 // First accessible page shared with the integration — used as the DB parent
@@ -276,6 +296,8 @@ export async function fetchExisting(cfg: NotionConfig): Promise<Map<string, Exis
           lastActivity: p["Last activity"]?.date?.start ?? "",
           active: p.Active?.checkbox ?? false,
           link: p.Link?.url ?? "",
+          lastMessage: readText(p["Último mensaje"]),
+          direction: p["Dirección"]?.select?.name ?? "",
         },
       });
     }
@@ -302,7 +324,9 @@ function ownedEquals(a: Partial<Owned>, b: Owned): boolean {
     (a.messages ?? 0) === b.messages &&
     dayMinute(a.lastActivity ?? "") === dayMinute(b.lastActivity) &&
     (a.active ?? false) === b.active &&
-    (a.link ?? "") === b.link
+    (a.link ?? "") === b.link &&
+    (a.lastMessage ?? "") === b.lastMessage &&
+    (a.direction ?? "") === b.direction
   );
 }
 
