@@ -338,12 +338,19 @@ export async function createRow(cfg: NotionConfig, s: RawSession): Promise<void>
   });
 }
 
-export async function updateRow(cfg: NotionConfig, pageId: string, s: RawSession): Promise<void> {
-  await api(cfg, "PATCH", `/pages/${pageId}`, { properties: ownedToProps(ownedOf(s)) });
+export async function updateRow(cfg: NotionConfig, pageId: string, owned: Owned): Promise<void> {
+  await api(cfg, "PATCH", `/pages/${pageId}`, { properties: ownedToProps(owned) });
 }
 
-export function needsUpdate(existing: Partial<Owned>, s: RawSession): boolean {
-  return !ownedEquals(existing, ownedOf(s));
+// Reconcile a live session against its existing row. Status is only refreshed when
+// the session had new activity (Last activity changed); otherwise we keep whatever
+// Status the row currently has, so a manual move on the board sticks until the
+// session moves again.
+export function reconcile(existing: Partial<Owned>, s: RawSession): { changed: boolean; owned: Owned } {
+  const owned = ownedOf(s);
+  const activityChanged = dayMinute(existing.lastActivity ?? "") !== dayMinute(owned.lastActivity);
+  if (!activityChanged && existing.status) owned.status = existing.status;
+  return { changed: !ownedEquals(existing, owned), owned };
 }
 
 // Move a page to Notion's trash, freeing it from the workspace block count.

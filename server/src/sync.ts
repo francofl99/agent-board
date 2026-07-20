@@ -6,8 +6,8 @@ import {
   fetchExisting,
   findAccessiblePage,
   loadConfig,
-  needsUpdate,
   persistDatabaseId,
+  reconcile,
   shouldSync,
   updateRow,
 } from "./notion.js";
@@ -33,12 +33,15 @@ async function runOnce(cfg: NotionConfig): Promise<void> {
       await createRow(cfg, s);
       created++;
       await sleep(THROTTLE_MS);
-    } else if (needsUpdate(row.owned, s)) {
-      await updateRow(cfg, row.pageId, s);
-      updated++;
-      await sleep(THROTTLE_MS);
     } else {
-      skipped++;
+      const { changed, owned } = reconcile(row.owned, s);
+      if (changed) {
+        await updateRow(cfg, row.pageId, owned);
+        updated++;
+        await sleep(THROTTLE_MS);
+      } else {
+        skipped++;
+      }
     }
   }
 
