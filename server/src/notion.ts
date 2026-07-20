@@ -81,6 +81,8 @@ export function shouldSync(s: RawSession, cfg: NotionConfig): boolean {
 }
 
 // --- Display mapping (backend-owned fields only) ---
+// Selects keep plain names (Notion shows their color chip; the API can't rename an
+// existing option, and Status may hold user-created options like Hold/Archive).
 const STATUS_LABEL: Record<SessionStatus, string> = {
   working: "Trabajando",
   waiting_user: "Esperando respuesta",
@@ -90,6 +92,12 @@ const PROVIDER_LABEL: Record<Provider, string> = {
   claude: "Claude",
   codex: "Codex",
   opencode: "OpenCode",
+};
+// Page icon (card avatar) per provider.
+export const PAGE_ICON: Record<Provider, string> = {
+  claude: "🟠",
+  codex: "🟢",
+  opencode: "🟡",
 };
 
 function projectName(s: RawSession): string {
@@ -135,14 +143,14 @@ export function ownedOf(s: RawSession): Owned {
     name: s.title || s.id,
     provider: PROVIDER_LABEL[s.provider],
     status: STATUS_LABEL[s.status],
-    project: projectName(s),
+    project: `📁 ${projectName(s)}`,
     path: s.projectPath ?? "",
-    branch: s.gitBranch ?? "",
+    branch: s.gitBranch ? `🌿 ${s.gitBranch}` : "",
     messages: s.messageCount,
     lastActivity: s.lastActivity,
     active: s.active,
     link: deepLink(s),
-    lastMessage: s.lastMessage,
+    lastMessage: s.lastMessage ? `💬 ${s.lastMessage}` : "",
     direction: DIRECTION_LABEL[s.lastMessageRole] ?? "",
     prUrls: s.pullRequests,
   };
@@ -156,7 +164,8 @@ function prLabel(url: string): string {
 
 // Rich text with one clickable "repo#123" link per PR, separated by " · ".
 function prRichText(urls: string[]): { rich_text: unknown[] } {
-  const parts: unknown[] = [];
+  if (urls.length === 0) return { rich_text: [] };
+  const parts: unknown[] = [{ text: { content: "🔀 " } }];
   urls.forEach((u, i) => {
     if (i > 0) parts.push({ text: { content: " · " } });
     parts.push({ text: { content: prLabel(u), link: { url: u } } });
@@ -362,12 +371,21 @@ export async function createRow(cfg: NotionConfig, s: RawSession): Promise<void>
   const o = ownedOf(s);
   await api(cfg, "POST", "/pages", {
     parent: { database_id: cfg.databaseId },
+    icon: { type: "emoji", emoji: PAGE_ICON[s.provider] },
     properties: { ...ownedToProps(o), "Session ID": text(s.id) },
   });
 }
 
-export async function updateRow(cfg: NotionConfig, pageId: string, owned: Owned): Promise<void> {
-  await api(cfg, "PATCH", `/pages/${pageId}`, { properties: ownedToProps(owned) });
+export async function updateRow(
+  cfg: NotionConfig,
+  pageId: string,
+  owned: Owned,
+  iconEmoji: string
+): Promise<void> {
+  await api(cfg, "PATCH", `/pages/${pageId}`, {
+    icon: { type: "emoji", emoji: iconEmoji },
+    properties: ownedToProps(owned),
+  });
 }
 
 // Reconcile a live session against its existing row. Status is the only group-defining

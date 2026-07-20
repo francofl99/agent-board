@@ -6,6 +6,7 @@ import {
   fetchExisting,
   findAccessiblePage,
   loadConfig,
+  PAGE_ICON,
   persistDatabaseId,
   reconcile,
   shouldSync,
@@ -36,7 +37,7 @@ async function runOnce(cfg: NotionConfig): Promise<void> {
     } else {
       const { changed, owned } = reconcile(row.owned, s);
       if (changed) {
-        await updateRow(cfg, row.pageId, owned);
+        await updateRow(cfg, row.pageId, owned, PAGE_ICON[s.provider]);
         updated++;
         await sleep(THROTTLE_MS);
       } else {
