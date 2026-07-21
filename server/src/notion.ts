@@ -88,6 +88,9 @@ const STATUS_LABEL: Record<SessionStatus, string> = {
   waiting_user: "Esperando respuesta",
   idle: "Inactiva",
 };
+// The Status values the sync owns. Anything else in the Status column is a
+// user-created option (e.g. Hold / Archive) and is treated as a manual override.
+const DERIVED_STATUSES = new Set<string>(Object.values(STATUS_LABEL));
 const PROVIDER_LABEL: Record<Provider, string> = {
   claude: "Claude",
   codex: "Codex",
@@ -411,15 +414,18 @@ export async function updateRow(
   });
 }
 
-// Reconcile a live session against its existing row. Status is the only group-defining
-// field: when there is NO new activity (Last activity unchanged) we keep the row's
-// current Status, so a card the user moved between groups stays put. Every other field
-// (PRs, last message, etc.) is still refreshed, so metadata backfills without moving
-// the card. New activity re-derives Status too, toggling working ↔ waiting.
+// Reconcile a live session against its existing row.
+//
+// Derived Status values (Trabajando/Esperando/Inactiva) always follow reality, so the
+// working ↔ waiting toggle is never masked. A user-created Status (Hold, Archive, …)
+// is a manual override: it's preserved until the session has new activity, then it
+// re-derives. "New activity" is measured by message count — an exact integer, immune
+// to the minute-granularity race that could otherwise freeze a same-minute transition.
 export function reconcile(existing: Partial<Owned>, s: RawSession): { changed: boolean; owned: Owned } {
   const owned = ownedOf(s);
-  const activityChanged = dayMinute(existing.lastActivity ?? "") !== dayMinute(owned.lastActivity);
-  if (!activityChanged && existing.status !== undefined) owned.status = existing.status;
+  const isOverride = existing.status !== undefined && !DERIVED_STATUSES.has(existing.status);
+  const activityChanged = existing.messages !== owned.messages;
+  if (isOverride && !activityChanged) owned.status = existing.status as string;
   return { changed: !ownedEquals(existing, owned), owned };
 }
 
