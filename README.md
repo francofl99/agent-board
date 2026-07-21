@@ -105,6 +105,7 @@ provider-owned ones and **never** touches `Grupo` or the page body (notes).
 | `PRs` | Text | sync — clickable `repo#123` links for every GitHub PR found in the transcript |
 | `Modelo` | Text | sync — last model used in the session |
 | `Tokens` | Number | sync — output tokens generated across the session |
+| `Resumen` | Text | sync — AI summary (only if summaries are enabled; see below) |
 
 ## Filters
 
@@ -122,6 +123,31 @@ Notion's trash, freeing blocks.
 npm run sync:once -- --providers claude       # CLI override wins over config/env
 SYNC_PROVIDERS=claude,codex npm run sync
 ```
+
+## AI session summaries (optional)
+
+Point the sync at any **OpenAI-compatible** chat endpoint (Ollama, LM Studio,
+llama.cpp, vLLM, or a hosted API) and it writes a 1–2 sentence **`Resumen`** of each
+session. Disabled unless a URL is set — with no config the sync behaves exactly as
+before.
+
+A summary is (re)generated only when the **agent just added a message** (message count
+grew and the last message is the agent's), so the model is called at most once per new
+reply, not every cycle. If the endpoint is down or times out, that session is skipped
+and its existing summary is kept — the sync never aborts.
+
+```jsonc
+// in ~/.agent-board/notion.json
+"summary": {
+  "url": "http://localhost:11434/v1/chat/completions",  // e.g. Ollama
+  "model": "llama3.1",
+  "apiKey": "",          // optional (for hosted endpoints)
+  "timeoutMs": 20000
+}
+```
+
+Env equivalents: `SUMMARY_API_URL`, `SUMMARY_MODEL`, `SUMMARY_API_KEY`,
+`SUMMARY_TIMEOUT_MS`. Add a `Resumen` (text) property to the database to see it.
 
 ## Recommended views
 

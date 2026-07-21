@@ -1,6 +1,7 @@
 import os from "node:os";
 import path from "node:path";
 import { readFileSync, writeFileSync } from "node:fs";
+import type { SummaryConfig } from "./summarizer.js";
 import type { Provider, RawSession, SessionStatus } from "./types.js";
 
 const NOTION_VERSION = "2022-06-28";
@@ -15,6 +16,7 @@ export interface NotionConfig {
   sinceDays: number | null; // keep sessions touched within N days (null => no limit)
   onlyActive: boolean; // keep only sessions currently flagged active
   providers: Provider[] | null; // keep only these providers (null => all)
+  summary: SummaryConfig | null; // AI summarizer; null => feature disabled
 }
 
 const ALL_PROVIDERS: Provider[] = ["claude", "codex", "opencode"];
@@ -30,6 +32,19 @@ function parseProviders(raw: unknown): Provider[] | null {
     .map((p) => String(p).trim().toLowerCase())
     .filter((p): p is Provider => (ALL_PROVIDERS as string[]).includes(p));
   return valid.length > 0 ? valid : null;
+}
+
+// Summarizer config from env (wins) then the file's `summary` object. Off unless a URL is set.
+function parseSummary(fromFile: { summary?: Partial<SummaryConfig> }): SummaryConfig | null {
+  const f = fromFile.summary ?? {};
+  const url = process.env.SUMMARY_API_URL ?? f.url ?? "";
+  if (url === "") return null;
+  return {
+    url,
+    model: process.env.SUMMARY_MODEL ?? f.model ?? "",
+    apiKey: process.env.SUMMARY_API_KEY ?? f.apiKey ?? "",
+    timeoutMs: Number(process.env.SUMMARY_TIMEOUT_MS ?? f.timeoutMs ?? 20000),
+  };
 }
 
 // Config resolution: env vars win, then ~/.agent-board/notion.json.
@@ -48,13 +63,14 @@ export function loadConfig(): NotionConfig {
   const sinceDays = rawSince === null || rawSince === "" ? null : Number(rawSince) || null;
   const onlyActive = (process.env.SYNC_ONLY_ACTIVE ?? String(fromFile.onlyActive ?? "")) === "true";
   const providers = parseProviders(process.env.SYNC_PROVIDERS ?? (fromFile as any).providers ?? null);
+  const summary = parseSummary(fromFile as any);
   if (token === "") {
     throw new Error(
       "Missing Notion token. Set NOTION_TOKEN (env) or add \"token\" to " +
         "~/.agent-board/notion.json. The database is created automatically on first run."
     );
   }
-  return { token, databaseId, parentPageId, intervalMs, sinceDays, onlyActive, providers };
+  return { token, databaseId, parentPageId, intervalMs, sinceDays, onlyActive, providers, summary };
 }
 
 // Persist the auto-created databaseId back to the config file for future runs.
@@ -141,6 +157,7 @@ export interface Owned {
   prUrls: string[];
   model: string;
   tokens: number;
+  summary: string;
 }
 
 export function ownedOf(s: RawSession): Owned {
@@ -160,6 +177,7 @@ export function ownedOf(s: RawSession): Owned {
     prUrls: s.pullRequests,
     model: s.model ? `🧠 ${s.model}` : "",
     tokens: s.tokensOut,
+    summary: "", // filled in by reconcile: preserved or freshly generated
   };
 }
 
@@ -203,6 +221,7 @@ function ownedToProps(o: Owned): Record<string, unknown> {
     PRs: prRichText(o.prUrls),
     Modelo: text(o.model),
     Tokens: { number: o.tokens },
+    Resumen: text(o.summary),
   };
 }
 
@@ -287,6 +306,7 @@ const DB_SCHEMA = {
   PRs: { rich_text: {} },
   Modelo: { rich_text: {} },
   Tokens: { number: {} },
+  Resumen: { rich_text: {} },
 };
 
 // First accessible page shared with the integration — used as the DB parent
@@ -358,6 +378,7 @@ export async function fetchExisting(cfg: NotionConfig): Promise<Map<string, Exis
           prUrls: readPrUrls(p.PRs),
           model: readText(p.Modelo),
           tokens: p.Tokens?.number ?? 0,
+          summary: readText(p.Resumen),
         },
       });
     }
@@ -389,12 +410,14 @@ function ownedEquals(a: Partial<Owned>, b: Owned): boolean {
     (a.direction ?? "") === b.direction &&
     (a.prUrls ?? []).join("\n") === b.prUrls.join("\n") &&
     (a.model ?? "") === b.model &&
-    (a.tokens ?? 0) === b.tokens
+    (a.tokens ?? 0) === b.tokens &&
+    (a.summary ?? "") === b.summary
   );
 }
 
-export async function createRow(cfg: NotionConfig, s: RawSession): Promise<void> {
+export async function createRow(cfg: NotionConfig, s: RawSession, summary = ""): Promise<void> {
   const o = ownedOf(s);
+  o.summary = summary;
   await api(cfg, "POST", "/pages", {
     parent: { database_id: cfg.databaseId },
     icon: { type: "emoji", emoji: PAGE_ICON[s.provider] },
@@ -421,11 +444,17 @@ export async function updateRow(
 // is a manual override: it's preserved until the session has new activity, then it
 // re-derives. "New activity" is measured by message count — an exact integer, immune
 // to the minute-granularity race that could otherwise freeze a same-minute transition.
-export function reconcile(existing: Partial<Owned>, s: RawSession): { changed: boolean; owned: Owned } {
+export function reconcile(
+  existing: Partial<Owned>,
+  s: RawSession,
+  newSummary?: string
+): { changed: boolean; owned: Owned } {
   const owned = ownedOf(s);
   const isOverride = existing.status !== undefined && !DERIVED_STATUSES.has(existing.status);
   const activityChanged = existing.messages !== owned.messages;
   if (isOverride && !activityChanged) owned.status = existing.status as string;
+  // Summary: use a freshly generated one if provided, else keep whatever the row has.
+  owned.summary = newSummary ?? existing.summary ?? "";
   return { changed: !ownedEquals(existing, owned), owned };
 }
 

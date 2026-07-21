@@ -13,6 +13,21 @@ import {
   updateRow,
 } from "./notion.js";
 import type { NotionConfig } from "./notion.js";
+import { summarize } from "./summarizer.js";
+import type { RawSession } from "./types.js";
+
+// Generate a summary only when the feature is on and the agent just added a message.
+async function maybeSummarize(
+  cfg: NotionConfig,
+  s: RawSession,
+  storedMessages: number | undefined
+): Promise<string | undefined> {
+  if (cfg.summary === null) return undefined;
+  if (s.lastMessageRole !== "assistant") return undefined;
+  if (s.messageCount === storedMessages) return undefined; // no new message → keep existing
+  const text = await summarize(cfg.summary, s.recentMessages);
+  return text === null ? undefined : `📝 ${text}`;
+}
 
 const THROTTLE_MS = 350; // ~3 writes/sec, under Notion's rate limit
 
@@ -31,11 +46,13 @@ async function runOnce(cfg: NotionConfig): Promise<void> {
   for (const s of sessions) {
     const row = existing.get(s.id);
     if (!row) {
-      await createRow(cfg, s);
+      const summary = await maybeSummarize(cfg, s, undefined);
+      await createRow(cfg, s, summary ?? "");
       created++;
       await sleep(THROTTLE_MS);
     } else {
-      const { changed, owned } = reconcile(row.owned, s);
+      const newSummary = await maybeSummarize(cfg, s, row.owned.messages);
+      const { changed, owned } = reconcile(row.owned, s, newSummary);
       if (changed) {
         await updateRow(cfg, row.pageId, owned, PAGE_ICON[s.provider]);
         updated++;
@@ -109,9 +126,10 @@ async function main() {
   const once = process.argv.includes("--once");
   await ensureDatabase(cfg);
   const provLabel = cfg.providers ? cfg.providers.join(",") : "todos";
+  const sumLabel = cfg.summary ? `on (${cfg.summary.model || "?"})` : "off";
   console.log(
     `Notion sync → db ${cfg.databaseId} · proveedores ${provLabel} · ` +
-      `intervalo ${cfg.intervalMs}ms${once ? " (once)" : ""}`
+      `resumen ${sumLabel} · intervalo ${cfg.intervalMs}ms${once ? " (once)" : ""}`
   );
 
   for (;;) {

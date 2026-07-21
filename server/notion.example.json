@@ -4,5 +4,11 @@
   "intervalMs": 30000,
   "sinceDays": 14,
   "onlyActive": false,
-  "providers": ["claude", "codex"]
+  "providers": ["claude", "codex"],
+  "summary": {
+    "url": "http://localhost:11434/v1/chat/completions",
+    "model": "llama3.1",
+    "apiKey": "",
+    "timeoutMs": 20000
+  }
 }

@@ -27,9 +27,9 @@ function deriveStatus(lastRole: string, lastStop: string | null): SessionStatus 
   return "idle";
 }
 
-function truncate(s: string): string {
+function truncate(s: string, max: number = MAX_LEN): string {
   const clean = s.replace(/\s+/g, " ").trim();
-  return clean.length > MAX_LEN ? clean.slice(0, MAX_LEN) + "…" : clean;
+  return clean.length > max ? clean.slice(0, max) + "…" : clean;
 }
 
 // content can be a string or an array of blocks ({ type, text, ... })
@@ -63,6 +63,7 @@ export async function parseSession(filePath: string, projectSlug: string): Promi
   let model = "";
   let tokensOut = 0;
   const prs = new Set<string>();
+  const recent: { role: string; text: string }[] = [];
 
   const rl = readline.createInterface({ input: createReadStream(filePath), crlfDelay: Infinity });
   for await (const line of rl) {
@@ -95,6 +96,8 @@ export async function parseSession(filePath: string, projectSlug: string): Promi
       if (text !== "") {
         lastMsgText = text;
         lastMsgRole = type;
+        recent.push({ role: type, text: truncate(text, 500) });
+        if (recent.length > 8) recent.shift();
       }
     }
   }
@@ -118,6 +121,7 @@ export async function parseSession(filePath: string, projectSlug: string): Promi
     pullRequests: [...prs],
     model,
     tokensOut,
+    recentMessages: recent,
     messageCount,
     lastActivity,
     sizeBytes: stat.size,
@@ -160,6 +164,7 @@ export async function parseCodexSession(filePath: string): Promise<RawSession | 
   let model = "";
   let tokensOut = 0;
   const prs = new Set<string>();
+  const recent: { role: string; text: string }[] = [];
 
   const rl = readline.createInterface({ input: createReadStream(filePath), crlfDelay: Infinity });
   for await (const line of rl) {
@@ -192,11 +197,15 @@ export async function parseCodexSession(filePath: string): Promise<RawSession | 
           lastUserText = text;
           lastMsgText = text;
           lastMsgRole = role;
+          recent.push({ role, text: truncate(text, 500) });
+          if (recent.length > 8) recent.shift();
         }
       } else {
         lastAssistantText = text;
         lastMsgText = text;
         lastMsgRole = role;
+        recent.push({ role, text: truncate(text, 500) });
+        if (recent.length > 8) recent.shift();
       }
     }
   }
@@ -218,6 +227,7 @@ export async function parseCodexSession(filePath: string): Promise<RawSession | 
     pullRequests: [...prs],
     model,
     tokensOut,
+    recentMessages: recent,
     messageCount,
     lastActivity: stat.mtime.toISOString(),
     sizeBytes: stat.size,

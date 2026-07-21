@@ -17,6 +17,7 @@ export interface RawSession {
   pullRequests: string[]; // GitHub PR URLs found in the transcript
   model: string; // last model used in the session
   tokensOut: number; // output tokens generated across the session
+  recentMessages: { role: string; text: string }[]; // last few text messages, for summarization
   messageCount: number;
   lastActivity: string; // ISO
   sizeBytes: number;
