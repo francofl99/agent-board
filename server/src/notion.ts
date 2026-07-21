@@ -157,7 +157,6 @@ export interface Owned {
   prUrls: string[];
   model: string;
   tokens: number;
-  summary: string;
 }
 
 export function ownedOf(s: RawSession): Owned {
@@ -177,7 +176,6 @@ export function ownedOf(s: RawSession): Owned {
     prUrls: s.pullRequests,
     model: s.model ? `🧠 ${s.model}` : "",
     tokens: s.tokensOut,
-    summary: "", // filled in by reconcile: preserved or freshly generated
   };
 }
 
@@ -221,7 +219,6 @@ function ownedToProps(o: Owned): Record<string, unknown> {
     PRs: prRichText(o.prUrls),
     Modelo: text(o.model),
     Tokens: { number: o.tokens },
-    Resumen: text(o.summary),
   };
 }
 
@@ -306,7 +303,6 @@ const DB_SCHEMA = {
   PRs: { rich_text: {} },
   Modelo: { rich_text: {} },
   Tokens: { number: {} },
-  Resumen: { rich_text: {} },
 };
 
 // First accessible page shared with the integration — used as the DB parent
@@ -378,7 +374,6 @@ export async function fetchExisting(cfg: NotionConfig): Promise<Map<string, Exis
           prUrls: readPrUrls(p.PRs),
           model: readText(p.Modelo),
           tokens: p.Tokens?.number ?? 0,
-          summary: readText(p.Resumen),
         },
       });
     }
@@ -410,19 +405,18 @@ function ownedEquals(a: Partial<Owned>, b: Owned): boolean {
     (a.direction ?? "") === b.direction &&
     (a.prUrls ?? []).join("\n") === b.prUrls.join("\n") &&
     (a.model ?? "") === b.model &&
-    (a.tokens ?? 0) === b.tokens &&
-    (a.summary ?? "") === b.summary
+    (a.tokens ?? 0) === b.tokens
   );
 }
 
-export async function createRow(cfg: NotionConfig, s: RawSession, summary = ""): Promise<void> {
+export async function createRow(cfg: NotionConfig, s: RawSession): Promise<string> {
   const o = ownedOf(s);
-  o.summary = summary;
-  await api(cfg, "POST", "/pages", {
+  const res: any = await api(cfg, "POST", "/pages", {
     parent: { database_id: cfg.databaseId },
     icon: { type: "emoji", emoji: PAGE_ICON[s.provider] },
     properties: { ...ownedToProps(o), "Session ID": text(s.id) },
   });
+  return res.id;
 }
 
 export async function updateRow(
@@ -444,18 +438,21 @@ export async function updateRow(
 // is a manual override: it's preserved until the session has new activity, then it
 // re-derives. "New activity" is measured by message count — an exact integer, immune
 // to the minute-granularity race that could otherwise freeze a same-minute transition.
-export function reconcile(
-  existing: Partial<Owned>,
-  s: RawSession,
-  newSummary?: string
-): { changed: boolean; owned: Owned } {
+export function reconcile(existing: Partial<Owned>, s: RawSession): { changed: boolean; owned: Owned } {
   const owned = ownedOf(s);
   const isOverride = existing.status !== undefined && !DERIVED_STATUSES.has(existing.status);
   const activityChanged = existing.messages !== owned.messages;
   if (isOverride && !activityChanged) owned.status = existing.status as string;
-  // Summary: use a freshly generated one if provided, else keep whatever the row has.
-  owned.summary = newSummary ?? existing.summary ?? "";
   return { changed: !ownedEquals(existing, owned), owned };
+}
+
+// Post a comment on a page. Requires the integration to have "Insert comments"
+// capability; throws on 403 if it doesn't (caller decides how to handle).
+export async function postComment(cfg: NotionConfig, pageId: string, body: string): Promise<void> {
+  await api(cfg, "POST", "/comments", {
+    parent: { page_id: pageId },
+    rich_text: [{ text: { content: body.slice(0, 2000) } }],
+  });
 }
 
 // Move a page to Notion's trash, freeing it from the workspace block count.

@@ -8,6 +8,7 @@ import {
   loadConfig,
   PAGE_ICON,
   persistDatabaseId,
+  postComment,
   reconcile,
   shouldSync,
   updateRow,
@@ -16,17 +17,27 @@ import type { NotionConfig } from "./notion.js";
 import { summarize } from "./summarizer.js";
 import type { RawSession } from "./types.js";
 
-// Generate a summary only when the feature is on and the agent just added a message.
-async function maybeSummarize(
+// When enabled and the agent just added a message, summarize and post it as a page
+// comment. Comments are append-only (the API can't edit/delete), so this leaves a
+// running log — one entry per new agent reply. Failures are swallowed.
+async function maybeComment(
   cfg: NotionConfig,
   s: RawSession,
+  pageId: string,
   storedMessages: number | undefined
-): Promise<string | undefined> {
-  if (cfg.summary === null) return undefined;
-  if (s.lastMessageRole !== "assistant") return undefined;
-  if (s.messageCount === storedMessages) return undefined; // no new message → keep existing
+): Promise<boolean> {
+  if (cfg.summary === null) return false;
+  if (s.lastMessageRole !== "assistant") return false;
+  if (s.messageCount === storedMessages) return false; // no new agent message
   const text = await summarize(cfg.summary, s.recentMessages);
-  return text === null ? undefined : `📝 ${text}`;
+  if (text === null) return false;
+  try {
+    await postComment(cfg, pageId, `📝 ${text}`);
+    return true;
+  } catch (e) {
+    console.warn(`No pude comentar (¿falta capability 'Insert comments'?): ${(e as Error).message}`);
+    return false;
+  }
 }
 
 const THROTTLE_MS = 350; // ~3 writes/sec, under Notion's rate limit
@@ -46,13 +57,12 @@ async function runOnce(cfg: NotionConfig): Promise<void> {
   for (const s of sessions) {
     const row = existing.get(s.id);
     if (!row) {
-      const summary = await maybeSummarize(cfg, s, undefined);
-      await createRow(cfg, s, summary ?? "");
+      const pageId = await createRow(cfg, s);
       created++;
       await sleep(THROTTLE_MS);
+      if (await maybeComment(cfg, s, pageId, undefined)) await sleep(THROTTLE_MS);
     } else {
-      const newSummary = await maybeSummarize(cfg, s, row.owned.messages);
-      const { changed, owned } = reconcile(row.owned, s, newSummary);
+      const { changed, owned } = reconcile(row.owned, s);
       if (changed) {
         await updateRow(cfg, row.pageId, owned, PAGE_ICON[s.provider]);
         updated++;
@@ -60,6 +70,7 @@ async function runOnce(cfg: NotionConfig): Promise<void> {
       } else {
         skipped++;
       }
+      if (await maybeComment(cfg, s, row.pageId, row.owned.messages)) await sleep(THROTTLE_MS);
     }
   }
 

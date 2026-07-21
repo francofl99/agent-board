@@ -105,7 +105,6 @@ provider-owned ones and **never** touches `Grupo` or the page body (notes).
 | `PRs` | Text | sync — clickable `repo#123` links for every GitHub PR found in the transcript |
 | `Modelo` | Text | sync — last model used in the session |
 | `Tokens` | Number | sync — output tokens generated across the session |
-| `Resumen` | Text | sync — AI summary (only if summaries are enabled; see below) |
 
 ## Filters
 
@@ -127,14 +126,18 @@ SYNC_PROVIDERS=claude,codex npm run sync
 ## AI session summaries (optional)
 
 Point the sync at any **OpenAI-compatible** chat endpoint (Ollama, LM Studio,
-llama.cpp, vLLM, or a hosted API) and it writes a 1–2 sentence **`Resumen`** of each
-session. Disabled unless a URL is set — with no config the sync behaves exactly as
-before.
+llama.cpp, vLLM, or a hosted API) and it posts a 1–2 sentence summary as a **comment**
+on each session's page (shown in full, unlike a truncated card property). Disabled
+unless a URL is set — with no config the sync behaves exactly as before.
 
-A summary is (re)generated only when the **agent just added a message** (message count
-grew and the last message is the agent's), so the model is called at most once per new
-reply, not every cycle. If the endpoint is down or times out, that session is skipped
-and its existing summary is kept — the sync never aborts.
+A summary is generated only when the **agent just added a message** (message count grew
+and the last message is the agent's), so the model is called at most once per new
+reply. Notion comments are append-only (the API can't edit or delete them), so each
+session accumulates a short running log. If the endpoint is down or times out, that
+session is skipped — the sync never aborts.
+
+Requires the integration to have the **"Insert comments"** capability enabled (Notion →
+your integration → Capabilities). Without it, comment posts are silently skipped.
 
 ```jsonc
 // in ~/.agent-board/notion.json
@@ -147,7 +150,7 @@ and its existing summary is kept — the sync never aborts.
 ```
 
 Env equivalents: `SUMMARY_API_URL`, `SUMMARY_MODEL`, `SUMMARY_API_KEY`,
-`SUMMARY_TIMEOUT_MS`. Add a `Resumen` (text) property to the database to see it.
+`SUMMARY_TIMEOUT_MS`.
 
 ## Recommended views
 
