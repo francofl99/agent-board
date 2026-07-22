@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "sync": "tsx src/sync.ts",
-    "sync:once": "tsx src/sync.ts --once"
+    "sync:once": "tsx src/sync.ts --once",
+    "setup:summary": "tsx src/setup-summary.ts"
   },
   "devDependencies": {
     "@types/node": "^20.14.0",

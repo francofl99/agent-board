@@ -139,8 +139,17 @@ session is skipped — the sync never aborts.
 Requires the integration to have the **"Insert comments"** capability enabled (Notion →
 your integration → Capabilities). Without it, comment posts are silently skipped.
 
+Quickest setup — an interactive command that picks the provider, sets the URL, lists
+the endpoint's models and writes the config for you:
+
+```bash
+npm run setup:summary          # configure
+npm run setup:summary -- --disable   # turn it off
+```
+
+Or edit `~/.agent-board/notion.json` by hand:
+
 ```jsonc
-// in ~/.agent-board/notion.json
 "summary": {
   "url": "http://localhost:11434/v1/chat/completions",  // e.g. Ollama
   "model": "llama3.1",
