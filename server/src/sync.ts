@@ -17,9 +17,10 @@ import type { NotionConfig } from "./notion.js";
 import { summarize } from "./summarizer.js";
 import type { RawSession } from "./types.js";
 
-// When enabled and the agent just added a message, summarize and post it as a page
-// comment. Comments are append-only (the API can't edit/delete), so this leaves a
-// running log — one entry per new agent reply. Failures are swallowed.
+// When enabled and the agent has just FINISHED its turn (status waiting_user, i.e. the
+// last message is a completed assistant reply — not mid-turn between tool calls),
+// summarize and post it as a page comment. Comments are append-only (the API can't
+// edit/delete), so this leaves one entry per completed turn. Failures are swallowed.
 async function maybeComment(
   cfg: NotionConfig,
   s: RawSession,
@@ -27,8 +28,8 @@ async function maybeComment(
   storedMessages: number | undefined
 ): Promise<boolean> {
   if (cfg.summary === null) return false;
-  if (s.lastMessageRole !== "assistant") return false;
-  if (s.messageCount === storedMessages) return false; // no new agent message
+  if (s.status !== "waiting_user") return false; // only when the turn is done
+  if (s.messageCount === storedMessages) return false; // and only once per new turn
   const text = await summarize(cfg.summary, s.recentMessages);
   if (text === null) return false;
   try {

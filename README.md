@@ -130,10 +130,10 @@ llama.cpp, vLLM, or a hosted API) and it posts a 1–2 sentence summary as a **c
 on each session's page (shown in full, unlike a truncated card property). Disabled
 unless a URL is set — with no config the sync behaves exactly as before.
 
-A summary is generated only when the **agent just added a message** (message count grew
-and the last message is the agent's), so the model is called at most once per new
-reply. Notion comments are append-only (the API can't edit or delete them), so each
-session accumulates a short running log. If the endpoint is down or times out, that
+A summary is generated only when the **agent finishes its turn** (status
+`waiting_user`) and only once per turn — never mid-turn between tool calls. Notion
+comments are append-only (the API can't edit or delete them), so each session
+accumulates one entry per completed turn. If the endpoint is down or times out, that
 session is skipped — the sync never aborts.
 
 Requires the integration to have the **"Insert comments"** capability enabled (Notion →
