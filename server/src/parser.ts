@@ -102,6 +102,7 @@ export async function parseSession(filePath: string, projectSlug: string): Promi
     }
   }
 
+  const scheduledTask = firstUserText.match(/<scheduled-task name="([^"]+)"/)?.[1] ?? "";
   const title = truncate(customTitle || firstUserText || id);
   const preview = truncate(lastPrompt || lastAssistantText || firstUserText || "");
   const lastActivity = stat.mtime.toISOString();
@@ -122,6 +123,8 @@ export async function parseSession(filePath: string, projectSlug: string): Promi
     model,
     tokensOut,
     recentMessages: recent,
+    scheduledTask,
+    syncKey: id,
     messageCount,
     lastActivity,
     sizeBytes: stat.size,
@@ -228,6 +231,8 @@ export async function parseCodexSession(filePath: string): Promise<RawSession | 
     model,
     tokensOut,
     recentMessages: recent,
+    scheduledTask: "",
+    syncKey: id,
     messageCount,
     lastActivity: stat.mtime.toISOString(),
     sizeBytes: stat.size,

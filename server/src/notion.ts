@@ -414,7 +414,7 @@ export async function createRow(cfg: NotionConfig, s: RawSession): Promise<strin
   const res: any = await api(cfg, "POST", "/pages", {
     parent: { database_id: cfg.databaseId },
     icon: { type: "emoji", emoji: PAGE_ICON[s.provider] },
-    properties: { ...ownedToProps(o), "Session ID": text(s.id) },
+    properties: { ...ownedToProps(o), "Session ID": text(s.syncKey) },
   });
   return res.id;
 }

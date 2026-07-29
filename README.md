@@ -22,6 +22,9 @@ by the sync.
 - **Diff-based, rate-limit-friendly** — only changed rows are patched.
 - **Filters** — sync a subset by provider, recency, or activity to stay within Notion's
   free block limit.
+- **Routines collapse** — scheduled-task runs (Claude Code routines) share one card per
+  routine, updated by the latest run, instead of a new card per execution. With
+  summaries on, each run's summary is appended as a comment — an execution log.
 
 ## Architecture
 

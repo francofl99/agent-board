@@ -18,6 +18,8 @@ export interface RawSession {
   model: string; // last model used in the session
   tokensOut: number; // output tokens generated across the session
   recentMessages: { role: string; text: string }[]; // last few text messages, for summarization
+  scheduledTask: string; // routine name if this is a scheduled-task run, else ""
+  syncKey: string; // Notion dedup key: session id, or routine:<name> for routines
   messageCount: number;
   lastActivity: string; // ISO
   sizeBytes: number;
