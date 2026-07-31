@@ -1,6 +1,7 @@
 import os from "node:os";
 import path from "node:path";
 import { readFileSync, writeFileSync } from "node:fs";
+import type { OpenPr } from "./prs.js";
 import type { SummaryConfig } from "./summarizer.js";
 import type { Provider, RawSession, SessionStatus } from "./types.js";
 
@@ -11,6 +12,7 @@ const CONFIG_PATH = path.join(os.homedir(), ".agent-board", "notion.json");
 export interface NotionConfig {
   token: string;
   databaseId: string; // target DB; may be "" and auto-created on first run
+  prDatabaseId: string; // "My PRs" DB; may be "" and auto-created on first PR sync
   parentPageId: string; // where to create the DB when databaseId is empty ("" => auto-discover)
   intervalMs: number;
   sinceDays: number | null; // keep sessions touched within N days (null => no limit)
@@ -57,6 +59,7 @@ export function loadConfig(): NotionConfig {
   }
   const token = process.env.NOTION_TOKEN ?? fromFile.token ?? "";
   const databaseId = process.env.NOTION_DATABASE_ID ?? fromFile.databaseId ?? "";
+  const prDatabaseId = process.env.NOTION_PR_DATABASE_ID ?? fromFile.prDatabaseId ?? "";
   const parentPageId = process.env.NOTION_PARENT_PAGE_ID ?? fromFile.parentPageId ?? "";
   const intervalMs = Number(process.env.SYNC_INTERVAL_MS ?? fromFile.intervalMs ?? 30000);
   const rawSince = process.env.SYNC_SINCE_DAYS ?? fromFile.sinceDays ?? null;
@@ -70,19 +73,27 @@ export function loadConfig(): NotionConfig {
         "~/.agent-board/notion.json. The database is created automatically on first run."
     );
   }
-  return { token, databaseId, parentPageId, intervalMs, sinceDays, onlyActive, providers, summary };
+  return { token, databaseId, prDatabaseId, parentPageId, intervalMs, sinceDays, onlyActive, providers, summary };
 }
 
-// Persist the auto-created databaseId back to the config file for future runs.
-export function persistDatabaseId(databaseId: string): void {
+// Persist an auto-created id back to the config file for future runs.
+function persistKey(key: string, value: string): void {
   let current: Record<string, unknown> = {};
   try {
     current = JSON.parse(readFileSync(CONFIG_PATH, "utf8"));
   } catch {
     /* file may not exist when configured purely via env */
   }
-  current.databaseId = databaseId;
+  current[key] = value;
   writeFileSync(CONFIG_PATH, JSON.stringify(current, null, 2) + "\n");
+}
+
+export function persistDatabaseId(databaseId: string): void {
+  persistKey("databaseId", databaseId);
+}
+
+export function persistPrDatabaseId(prDatabaseId: string): void {
+  persistKey("prDatabaseId", prDatabaseId);
 }
 
 // Which sessions the sync should keep in Notion, per the configured filters.
@@ -185,14 +196,22 @@ function prLabel(url: string): string {
   return m ? `${m[1]}#${m[2]}` : url;
 }
 
+// Notion caps a rich_text array at 100 segments. Each PR uses up to 2 (link +
+// separator) plus the leading icon, so bound the number of linked PRs well under that.
+const MAX_PR_LINKS = 40;
+
 // Rich text with one clickable "repo#123" link per PR, separated by " · ".
 function prRichText(urls: string[]): { rich_text: unknown[] } {
   if (urls.length === 0) return { rich_text: [] };
+  const shown = urls.slice(0, MAX_PR_LINKS);
   const parts: unknown[] = [{ text: { content: "🔀 " } }];
-  urls.forEach((u, i) => {
+  shown.forEach((u, i) => {
     if (i > 0) parts.push({ text: { content: " · " } });
     parts.push({ text: { content: prLabel(u), link: { url: u } } });
   });
+  if (urls.length > shown.length) {
+    parts.push({ text: { content: ` +${urls.length - shown.length} más` } });
+  }
   return { rich_text: parts };
 }
 
@@ -403,7 +422,7 @@ function ownedEquals(a: Partial<Owned>, b: Owned): boolean {
     (a.link ?? "") === b.link &&
     (a.lastMessage ?? "") === b.lastMessage &&
     (a.direction ?? "") === b.direction &&
-    (a.prUrls ?? []).join("\n") === b.prUrls.join("\n") &&
+    (a.prUrls ?? []).join("\n") === b.prUrls.slice(0, MAX_PR_LINKS).join("\n") &&
     (a.model ?? "") === b.model &&
     (a.tokens ?? 0) === b.tokens
   );
@@ -458,4 +477,145 @@ export async function postComment(cfg: NotionConfig, pageId: string, body: strin
 // Move a page to Notion's trash, freeing it from the workspace block count.
 export async function archiveRow(cfg: NotionConfig, pageId: string): Promise<void> {
   await api(cfg, "PATCH", `/pages/${pageId}`, { archived: true });
+}
+
+// --- "My PRs": your open GitHub PRs across all repos, synced into a separate DB ---
+
+const PR_STATE_OPEN = "Open";
+const PR_STATE_DRAFT = "Draft";
+// The Estado values the sync owns. Anything else is a user-created option (e.g.
+// "Revisando", "Bloqueado") and is treated as a manual override: the sync preserves it
+// instead of forcing the row back to Open/Draft.
+const PR_DERIVED_STATES = new Set<string>([PR_STATE_OPEN, PR_STATE_DRAFT]);
+
+const PR_DB_SCHEMA = {
+  Name: { title: {} },
+  Repo: { rich_text: {} },
+  PR: { number: {} },
+  Estado: {
+    select: {
+      options: [
+        { name: PR_STATE_OPEN, color: "green" },
+        { name: PR_STATE_DRAFT, color: "gray" },
+      ],
+    },
+  },
+  Creado: { date: {} },
+  Actualizado: { date: {} },
+  Link: { url: {} },
+};
+
+// Create the "My PRs" database under the given parent page. Returns its id.
+export async function createPrDatabase(cfg: NotionConfig, parentPageId: string): Promise<string> {
+  const res: any = await api(cfg, "POST", "/databases", {
+    parent: { type: "page_id", page_id: parentPageId },
+    title: [{ type: "text", text: { content: "My PRs" } }],
+    icon: { type: "emoji", emoji: "🔀" },
+    properties: PR_DB_SCHEMA,
+  });
+  return res.id;
+}
+
+interface PrOwned {
+  name: string;
+  repo: string;
+  number: number;
+  state: string;
+  createdAt: string;
+  updatedAt: string;
+  url: string;
+}
+
+function prOwnedOf(pr: OpenPr): PrOwned {
+  return {
+    name: pr.title || `${prLabel(pr.url)}`,
+    repo: `📦 ${pr.repo}`,
+    number: pr.number,
+    state: pr.isDraft ? PR_STATE_DRAFT : PR_STATE_OPEN,
+    createdAt: pr.createdAt,
+    updatedAt: pr.updatedAt,
+    url: pr.url,
+  };
+}
+
+function prOwnedToProps(o: PrOwned): Record<string, unknown> {
+  return {
+    Name: { title: [{ text: { content: o.name.slice(0, 2000) } }] },
+    Repo: text(o.repo),
+    PR: { number: o.number },
+    Estado: { select: { name: o.state } },
+    Creado: o.createdAt === "" ? { date: null } : { date: { start: o.createdAt } },
+    Actualizado: o.updatedAt === "" ? { date: null } : { date: { start: o.updatedAt } },
+    Link: { url: o.url === "" ? null : o.url },
+  };
+}
+
+interface ExistingPr {
+  pageId: string;
+  owned: PrOwned;
+}
+
+// Map existing PR rows by URL (the stable unique key).
+export async function fetchExistingPrs(cfg: NotionConfig): Promise<Map<string, ExistingPr>> {
+  const out = new Map<string, ExistingPr>();
+  let cursor: string | undefined;
+  do {
+    const page: any = await api(cfg, "POST", `/databases/${cfg.prDatabaseId}/query`, {
+      page_size: 100,
+      start_cursor: cursor,
+    });
+    for (const row of page.results) {
+      const p = row.properties;
+      const url = p.Link?.url ?? "";
+      if (url === "") continue;
+      out.set(url, {
+        pageId: row.id,
+        owned: {
+          name: readText(p.Name),
+          repo: readText(p.Repo),
+          number: p.PR?.number ?? 0,
+          state: p.Estado?.select?.name ?? "",
+          createdAt: p.Creado?.date?.start ?? "",
+          updatedAt: p.Actualizado?.date?.start ?? "",
+          url,
+        },
+      });
+    }
+    cursor = page.has_more ? page.next_cursor : undefined;
+  } while (cursor);
+  return out;
+}
+
+function prOwnedEquals(a: PrOwned, b: PrOwned): boolean {
+  return (
+    a.name === b.name &&
+    a.repo === b.repo &&
+    a.number === b.number &&
+    a.state === b.state &&
+    dayMinute(a.createdAt) === dayMinute(b.createdAt) &&
+    dayMinute(a.updatedAt) === dayMinute(b.updatedAt) &&
+    a.url === b.url
+  );
+}
+
+export async function upsertPr(cfg: NotionConfig, pr: OpenPr, existing: ExistingPr | undefined): Promise<"created" | "updated" | "skipped"> {
+  const owned = prOwnedOf(pr);
+  // Preserve a manual Estado override (any option that isn't Open/Draft).
+  if (existing !== undefined && !PR_DERIVED_STATES.has(existing.owned.state)) {
+    owned.state = existing.owned.state;
+  }
+  if (existing === undefined) {
+    await api(cfg, "POST", "/pages", {
+      parent: { database_id: cfg.prDatabaseId },
+      icon: { type: "emoji", emoji: pr.isDraft ? "📝" : "🔀" },
+      properties: prOwnedToProps(owned),
+    });
+    return "created";
+  }
+  if (prOwnedEquals(existing.owned, owned)) return "skipped";
+  await api(cfg, "PATCH", `/pages/${existing.pageId}`, {
+    icon: { type: "emoji", emoji: pr.isDraft ? "📝" : "🔀" },
+    properties: prOwnedToProps(owned),
+  });
+  return "updated";
 }

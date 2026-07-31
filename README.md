@@ -77,6 +77,7 @@ it to bootstrap a fresh database again.
 {
   "token": "ntn_...",
   "parentPageId": "optional_page_id_where_the_db_is_created",
+  "prDatabaseId": "auto-filled after first `sync:prs` run",
   "intervalMs": 30000,
   "sinceDays": 14,
   "onlyActive": false,
@@ -163,6 +164,40 @@ Or edit `~/.agent-board/notion.json` by hand:
 
 Env equivalents: `SUMMARY_API_URL`, `SUMMARY_MODEL`, `SUMMARY_API_KEY`,
 `SUMMARY_TIMEOUT_MS`.
+
+## My PRs (your open pull requests across all repos)
+
+A separate sync lists **your** open GitHub PRs across every repo and upserts them into
+their own Notion database ("My PRs"). It reuses your existing **`gh` CLI** login
+(`gh auth status`), so there is no extra credential to store — nothing like an API token
+saved on disk.
+
+```bash
+npm run sync:prs:once   # bootstraps the "My PRs" DB on first run, then upserts
+npm run sync:prs        # loop every intervalMs
+```
+
+- Source: `gh search prs --author @me --state open`.
+- The `prDatabaseId` is written back to your config after the first run (delete it to
+  bootstrap a fresh DB). Created under `parentPageId`, or the first accessible page.
+- Rows are keyed by PR URL: reopened diffs update in place; merged/closed PRs drop out
+  of `--state open` and their rows are moved to Notion's trash automatically.
+- **Manual `Estado` override**: the sync only owns `Open`/`Draft`. If you set a row's
+  `Estado` to any other option (add it in Notion first, e.g. `Revisando`, `Bloqueado`),
+  the sync preserves it and never forces it back to `Open`/`Draft`. The row still drops
+  out (is trashed) once the PR is no longer open on GitHub.
+
+| Property | Type | Notes |
+|----------|------|-------|
+| `Name` | Title | PR title |
+| `Repo` | Text | `owner/name` |
+| `PR` | Number | PR number |
+| `Estado` | Select (`Open`, `Draft`) | draft PRs flagged separately |
+| `Creado` / `Actualizado` | Date | from GitHub |
+| `Link` | URL | opens the PR on GitHub |
+
+Requires `gh` installed and authenticated. Env override for the DB id:
+`NOTION_PR_DATABASE_ID`.
 
 ## Recommended views
 

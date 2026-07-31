@@ -6,6 +6,8 @@
   "scripts": {
     "sync": "tsx src/sync.ts",
     "sync:once": "tsx src/sync.ts --once",
+    "sync:prs": "tsx src/sync-prs.ts",
+    "sync:prs:once": "tsx src/sync-prs.ts --once",
     "setup:summary": "tsx src/setup-summary.ts"
   },
   "devDependencies": {

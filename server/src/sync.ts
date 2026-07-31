@@ -14,6 +14,7 @@ import {
   updateRow,
 } from "./notion.js";
 import type { NotionConfig } from "./notion.js";
+import { ensurePrDatabase, syncPrsOnce } from "./sync-prs.js";
 import { summarize } from "./summarizer.js";
 import type { RawSession } from "./types.js";
 
@@ -65,6 +66,17 @@ const THROTTLE_MS = 350; // ~3 writes/sec, under Notion's rate limit
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+// Best-effort "My PRs" sync folded into the standard cycle: if gh is missing/unauthed
+// or Notion errors, log and move on — it must never abort the session sync.
+async function syncPrsBestEffort(cfg: NotionConfig): Promise<void> {
+  try {
+    await ensurePrDatabase(cfg);
+    await syncPrsOnce(cfg);
+  } catch (e) {
+    console.warn(`sync:prs omitido (no frena el sync): ${(e as Error).message}`);
+  }
+}
+
 async function runOnce(cfg: NotionConfig): Promise<void> {
   const all = await scanAllSessions();
   const sessions = collapseRoutines(all.filter((s) => shouldSync(s, cfg)));
@@ -108,6 +120,8 @@ async function runOnce(cfg: NotionConfig): Promise<void> {
     `[${ts}] sync: ${created} creadas, ${updated} actualizadas, ` +
       `${skipped} sin cambios, ${archived} archivadas (${sessions.length}/${all.length} en filtro)`
   );
+
+  await syncPrsBestEffort(cfg);
 }
 
 // --providers claude,codex  or  --providers=claude
