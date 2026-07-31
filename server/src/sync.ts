@@ -18,24 +18,11 @@ import { ensurePrDatabase, syncPrsOnce } from "./sync-prs.js";
 import { summarize } from "./summarizer.js";
 import type { RawSession } from "./types.js";
 
-// Routine (scheduled-task) runs each create a new session; collapse them so a routine
-// gets a SINGLE Notion card keyed by routine name, represented by its latest run,
-// instead of one card per execution. Non-routine sessions pass through unchanged.
-function collapseRoutines(sessions: RawSession[]): RawSession[] {
-  const routines = new Map<string, RawSession>();
-  const out: RawSession[] = [];
-  for (const s of sessions) {
-    if (s.scheduledTask === "") {
-      out.push(s);
-      continue;
-    }
-    const prev = routines.get(s.scheduledTask);
-    if (prev === undefined || s.lastActivity > prev.lastActivity) routines.set(s.scheduledTask, s);
-  }
-  for (const [name, s] of routines) {
-    out.push({ ...s, syncKey: `routine:${name}`, title: `🔁 ${name}` });
-  }
-  return out;
+// Routine (scheduled-task) runs are excluded from the board entirely: any session
+// whose first user turn carries a <scheduled-task> marker is dropped, so scheduled
+// automations never show up as cards. Only interactive sessions are synced.
+function dropRoutines(sessions: RawSession[]): RawSession[] {
+  return sessions.filter((s) => s.scheduledTask === "");
 }
 
 // When enabled and the agent has just FINISHED its turn (status waiting_user, i.e. the
@@ -79,7 +66,7 @@ async function syncPrsBestEffort(cfg: NotionConfig): Promise<void> {
 
 async function runOnce(cfg: NotionConfig): Promise<void> {
   const all = await scanAllSessions();
-  const sessions = collapseRoutines(all.filter((s) => shouldSync(s, cfg)));
+  const sessions = dropRoutines(all.filter((s) => shouldSync(s, cfg)));
   const keptIds = new Set(sessions.map((s) => s.syncKey));
   const existing = await fetchExisting(cfg);
   let created = 0;
