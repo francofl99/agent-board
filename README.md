@@ -77,6 +77,7 @@ it to bootstrap a fresh database again.
   "token": "ntn_...",
   "parentPageId": "optional_page_id_where_the_db_is_created",
   "prDatabaseId": "auto-filled after first `sync:prs` run",
+  "reviewDatabaseId": "auto-filled after first `sync:prs` run",
   "intervalMs": 30000,
   "sinceDays": 14,
   "onlyActive": false,
@@ -164,27 +165,41 @@ Or edit `~/.agent-board/notion.json` by hand:
 Env equivalents: `SUMMARY_API_URL`, `SUMMARY_MODEL`, `SUMMARY_API_KEY`,
 `SUMMARY_TIMEOUT_MS`.
 
-## My PRs (your open pull requests across all repos)
+## GitHub PRs (yours to land, and yours to review)
 
-A separate sync lists **your** open GitHub PRs across every repo and upserts them into
-their own Notion database ("My PRs"). It reuses your existing **`gh` CLI** login
-(`gh auth status`), so there is no extra credential to store — nothing like an API token
-saved on disk.
+A separate sync keeps **two databases**, one per role, so "mine to land" and "waiting on
+my review" never share a table:
+
+| Database | Config key | Query |
+|----------|-----------|-------|
+| **My PRs** | `prDatabaseId` | `gh search prs --author @me --state open` |
+| **PRs to review** | `reviewDatabaseId` | `gh search prs --review-requested @me --state open` — review requested **from you and still pending** |
+
+It reuses your existing **`gh` CLI** login (`gh auth status`), so there is no extra
+credential to store — nothing like an API token saved on disk.
 
 ```bash
-npm run sync:prs:once   # bootstraps the "My PRs" DB on first run, then upserts
+npm run sync:prs:once   # bootstraps both DBs on first run, then upserts
 npm run sync:prs        # loop every intervalMs
 ```
 
-- Source: `gh search prs --author @me --state open`.
-- The `prDatabaseId` is written back to your config after the first run (delete it to
-  bootstrap a fresh DB). Created under `parentPageId`, or the first accessible page.
+- **Already-reviewed PRs disappear on their own**: GitHub clears the review request the
+  moment you submit a review, so the PR leaves `review-requested:@me` and its row is
+  trashed on the next sync (it comes back if someone re-requests you).
+  *Caveat:* requests routed through a **team** you belong to aren't matched by this
+  qualifier — that needs `team-review-requested:org/team`.
+- Both ids are written back to your config after the first run (delete one to bootstrap a
+  fresh DB). Created under `parentPageId` — **set it**, otherwise the fallback is the
+  first page the search returns, which may be a row of the sessions database that later
+  gets trashed.
 - Rows are keyed by PR URL: reopened diffs update in place; merged/closed PRs drop out
   of `--state open` and their rows are moved to Notion's trash automatically.
 - **Manual `Estado` override**: the sync only owns `Open`/`Draft`. If you set a row's
   `Estado` to any other option (add it in Notion first, e.g. `Revisando`, `Bloqueado`),
   the sync preserves it and never forces it back to `Open`/`Draft`. The row still drops
   out (is trashed) once the PR is no longer open on GitHub.
+- If the database was moved in Notion, re-share it with the integration
+  (`•••` → **Connections**) — a moved DB loses inherited access and the sync 404s.
 
 | Property | Type | Notes |
 |----------|------|-------|
@@ -195,8 +210,10 @@ npm run sync:prs        # loop every intervalMs
 | `Creado` / `Actualizado` | Date | from GitHub |
 | `Link` | URL | opens the PR on GitHub |
 
-Requires `gh` installed and authenticated. Env override for the DB id:
-`NOTION_PR_DATABASE_ID`.
+Row icons: 🔀 your PR, 📝 your draft, 👀 awaiting your review.
+
+Requires `gh` installed and authenticated. Env overrides for the ids:
+`NOTION_PR_DATABASE_ID`, `NOTION_REVIEW_DATABASE_ID`.
 
 ## Recommended views
 

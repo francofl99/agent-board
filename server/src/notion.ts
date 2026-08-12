@@ -1,7 +1,7 @@
 import os from "node:os";
 import path from "node:path";
 import { readFileSync, writeFileSync } from "node:fs";
-import type { OpenPr } from "./prs.js";
+import type { OpenPr, PrRole } from "./prs.js";
 import type { SummaryConfig } from "./summarizer.js";
 import type { Provider, RawSession, SessionStatus } from "./types.js";
 
@@ -13,6 +13,7 @@ export interface NotionConfig {
   token: string;
   databaseId: string; // target DB; may be "" and auto-created on first run
   prDatabaseId: string; // "My PRs" DB; may be "" and auto-created on first PR sync
+  reviewDatabaseId: string; // "PRs to review" DB; same auto-create behavior
   parentPageId: string; // where to create the DB when databaseId is empty ("" => auto-discover)
   intervalMs: number;
   sinceDays: number | null; // keep sessions touched within N days (null => no limit)
@@ -60,6 +61,7 @@ export function loadConfig(): NotionConfig {
   const token = process.env.NOTION_TOKEN ?? fromFile.token ?? "";
   const databaseId = process.env.NOTION_DATABASE_ID ?? fromFile.databaseId ?? "";
   const prDatabaseId = process.env.NOTION_PR_DATABASE_ID ?? fromFile.prDatabaseId ?? "";
+  const reviewDatabaseId = process.env.NOTION_REVIEW_DATABASE_ID ?? fromFile.reviewDatabaseId ?? "";
   const parentPageId = process.env.NOTION_PARENT_PAGE_ID ?? fromFile.parentPageId ?? "";
   const intervalMs = Number(process.env.SYNC_INTERVAL_MS ?? fromFile.intervalMs ?? 30000);
   const rawSince = process.env.SYNC_SINCE_DAYS ?? fromFile.sinceDays ?? null;
@@ -73,7 +75,18 @@ export function loadConfig(): NotionConfig {
         "~/.agent-board/notion.json. The database is created automatically on first run."
     );
   }
-  return { token, databaseId, prDatabaseId, parentPageId, intervalMs, sinceDays, onlyActive, providers, summary };
+  return {
+    token,
+    databaseId,
+    prDatabaseId,
+    reviewDatabaseId,
+    parentPageId,
+    intervalMs,
+    sinceDays,
+    onlyActive,
+    providers,
+    summary,
+  };
 }
 
 // Persist an auto-created id back to the config file for future runs.
@@ -94,6 +107,10 @@ export function persistDatabaseId(databaseId: string): void {
 
 export function persistPrDatabaseId(prDatabaseId: string): void {
   persistKey("prDatabaseId", prDatabaseId);
+}
+
+export function persistReviewDatabaseId(reviewDatabaseId: string): void {
+  persistKey("reviewDatabaseId", reviewDatabaseId);
 }
 
 // Which sessions the sync should keep in Notion, per the configured filters.
@@ -329,10 +346,13 @@ const DB_SCHEMA = {
 export async function findAccessiblePage(cfg: NotionConfig): Promise<string | null> {
   const res: any = await api(cfg, "POST", "/search", {
     filter: { property: "object", value: "page" },
-    page_size: 10,
+    page_size: 50,
   });
-  const page = (res.results ?? []).find((r: any) => r.object === "page");
-  return page?.id ?? null;
+  const pages = (res.results ?? []).filter((r: any) => r.object === "page");
+  // Skip database rows: a row is trashed as soon as it falls out of the sync's filter,
+  // which would drag a database created inside it into the trash too.
+  const standalone = pages.find((p: any) => p.parent?.type !== "database_id");
+  return standalone?.id ?? pages[0]?.id ?? null;
 }
 
 // Create the Agent Board database under the given parent page. Returns its id.
@@ -479,7 +499,7 @@ export async function archiveRow(cfg: NotionConfig, pageId: string): Promise<voi
   await api(cfg, "PATCH", `/pages/${pageId}`, { archived: true });
 }
 
-// --- "My PRs": your open GitHub PRs across all repos, synced into a separate DB ---
+// --- GitHub PRs: one database per role ("My PRs" / "PRs to review") ---
 
 const PR_STATE_OPEN = "Open";
 const PR_STATE_DRAFT = "Draft";
@@ -505,12 +525,24 @@ const PR_DB_SCHEMA = {
   Link: { url: {} },
 };
 
-// Create the "My PRs" database under the given parent page. Returns its id.
-export async function createPrDatabase(cfg: NotionConfig, parentPageId: string): Promise<string> {
+// Each role gets its own database, so "mine to land" and "waiting on my review" never
+// share a table. Both use the same schema — only title, icon and source query differ.
+export const PR_DB_META: Record<PrRole, { title: string; icon: string }> = {
+  author: { title: "My PRs", icon: "🔀" },
+  reviewer: { title: "PRs to review", icon: "👀" },
+};
+
+// Create one of the PR databases under the given parent page. Returns its id.
+export async function createPrDatabase(
+  cfg: NotionConfig,
+  parentPageId: string,
+  role: PrRole
+): Promise<string> {
+  const meta = PR_DB_META[role];
   const res: any = await api(cfg, "POST", "/databases", {
     parent: { type: "page_id", page_id: parentPageId },
-    title: [{ type: "text", text: { content: "My PRs" } }],
-    icon: { type: "emoji", emoji: "🔀" },
+    title: [{ type: "text", text: { content: meta.title } }],
+    icon: { type: "emoji", emoji: meta.icon },
     properties: PR_DB_SCHEMA,
   });
   return res.id;
@@ -556,11 +588,14 @@ interface ExistingPr {
 }
 
 // Map existing PR rows by URL (the stable unique key).
-export async function fetchExistingPrs(cfg: NotionConfig): Promise<Map<string, ExistingPr>> {
+export async function fetchExistingPrs(
+  cfg: NotionConfig,
+  databaseId: string
+): Promise<Map<string, ExistingPr>> {
   const out = new Map<string, ExistingPr>();
   let cursor: string | undefined;
   do {
-    const page: any = await api(cfg, "POST", `/databases/${cfg.prDatabaseId}/query`, {
+    const page: any = await api(cfg, "POST", `/databases/${databaseId}/query`, {
       page_size: 100,
       start_cursor: cursor,
     });
@@ -598,7 +633,17 @@ function prOwnedEquals(a: PrOwned, b: PrOwned): boolean {
   );
 }
 
-export async function upsertPr(cfg: NotionConfig, pr: OpenPr, existing: ExistingPr | undefined): Promise<"created" | "updated" | "skipped"> {
+function prIcon(pr: OpenPr): string {
+  if (pr.role === "reviewer") return PR_DB_META.reviewer.icon;
+  return pr.isDraft ? "📝" : PR_DB_META.author.icon;
+}
+
+export async function upsertPr(
+  cfg: NotionConfig,
+  databaseId: string,
+  pr: OpenPr,
+  existing: ExistingPr | undefined
+): Promise<"created" | "updated" | "skipped"> {
   const owned = prOwnedOf(pr);
   // Preserve a manual Estado override (any option that isn't Open/Draft).
   if (existing !== undefined && !PR_DERIVED_STATES.has(existing.owned.state)) {
@@ -606,15 +651,15 @@ export async function upsertPr(cfg: NotionConfig, pr: OpenPr, existing: Existing
   }
   if (existing === undefined) {
     await api(cfg, "POST", "/pages", {
-      parent: { database_id: cfg.prDatabaseId },
-      icon: { type: "emoji", emoji: pr.isDraft ? "📝" : "🔀" },
+      parent: { database_id: databaseId },
+      icon: { type: "emoji", emoji: prIcon(pr) },
       properties: prOwnedToProps(owned),
     });
     return "created";
   }
   if (prOwnedEquals(existing.owned, owned)) return "skipped";
   await api(cfg, "PATCH", `/pages/${existing.pageId}`, {
-    icon: { type: "emoji", emoji: pr.isDraft ? "📝" : "🔀" },
+    icon: { type: "emoji", emoji: prIcon(pr) },
     properties: prOwnedToProps(owned),
   });
   return "updated";
