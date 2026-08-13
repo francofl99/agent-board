@@ -207,10 +207,31 @@ npm run sync:prs        # loop every intervalMs
 | `Repo` | Text | `owner/name` |
 | `PR` | Number | PR number |
 | `Estado` | Select (`Open`, `Draft`) | draft PRs flagged separately |
+| `Visto` | Checkbox | **PRs to review only** — you tick it, the sync unticks it (see below) |
 | `Creado` / `Actualizado` | Date | from GitHub |
 | `Link` | URL | opens the PR on GitHub |
 
-Row icons: 🔀 your PR, 📝 your draft, 👀 awaiting your review.
+Row icons: 🔀 your PR, 📝 your draft, 👀 awaiting your review, ✅ reviewed and quiet.
+
+### `Visto`: read once, and know when it changes again
+
+Tick `Visto` after reading a PR. The sync leaves it ticked while nothing happens, and
+**unticks it the moment GitHub reports newer activity** than the `Actualizado` already on
+the row — a new commit, review or comment puts the PR back in your queue. No extra
+column: the previous `Actualizado` value *is* the watermark.
+
+That makes two filters worth saving on the review database:
+
+| View | Filter | Answers |
+|------|--------|---------|
+| **Por revisar** | `Visto` is unchecked | what's actually waiting on me |
+| **Ya lo vi** | `Visto` is checked | reviewed, quiet, waiting on someone else |
+
+Because the sync only ever unticks a box you ticked, marking one by hand is safe: the row
+is rewritten (and its icon flips to ✅) on the next cycle, never reverted on its own.
+
+Caveat: GitHub bumps `updated_at` on *any* activity, including your own comment — so
+commenting on a PR you just marked will untick it again.
 
 Requires `gh` installed and authenticated. Env overrides for the ids:
 `NOTION_PR_DATABASE_ID`, `NOTION_REVIEW_DATABASE_ID`.

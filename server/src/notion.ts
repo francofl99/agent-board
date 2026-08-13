@@ -525,11 +525,16 @@ const PR_DB_SCHEMA = {
   Link: { url: {} },
 };
 
+// You tick Visto after reading a PR; the sync clears it as soon as GitHub reports a
+// newer Actualizado than the one already on the row, so "Visto = true" always means
+// "seen at its current state". Only meaningful for PRs waiting on your review.
+const REVIEW_ONLY_SCHEMA = { Visto: { checkbox: {} } };
+
 // Each role gets its own database, so "mine to land" and "waiting on my review" never
-// share a table. Both use the same schema — only title, icon and source query differ.
-export const PR_DB_META: Record<PrRole, { title: string; icon: string }> = {
-  author: { title: "My PRs", icon: "🔀" },
-  reviewer: { title: "PRs to review", icon: "👀" },
+// share a table. Titles, icons and the role-specific extra properties live here.
+export const PR_DB_META: Record<PrRole, { title: string; icon: string; extra: object }> = {
+  author: { title: "My PRs", icon: "🔀", extra: {} },
+  reviewer: { title: "PRs to review", icon: "👀", extra: REVIEW_ONLY_SCHEMA },
 };
 
 // Create one of the PR databases under the given parent page. Returns its id.
@@ -543,9 +548,25 @@ export async function createPrDatabase(
     parent: { type: "page_id", page_id: parentPageId },
     title: [{ type: "text", text: { content: meta.title } }],
     icon: { type: "emoji", emoji: meta.icon },
-    properties: PR_DB_SCHEMA,
+    properties: { ...PR_DB_SCHEMA, ...meta.extra },
   });
   return res.id;
+}
+
+// Databases created before a property existed lack it, and a page write naming an
+// unknown property is rejected. Patch the role's extras in once per process; Notion
+// leaves an already-present property untouched.
+const schemaPatched = new Set<string>();
+
+export async function ensurePrSchema(
+  cfg: NotionConfig,
+  databaseId: string,
+  role: PrRole
+): Promise<void> {
+  const extra = PR_DB_META[role].extra;
+  if (Object.keys(extra).length === 0 || schemaPatched.has(databaseId)) return;
+  await api(cfg, "PATCH", `/databases/${databaseId}`, { properties: extra });
+  schemaPatched.add(databaseId);
 }
 
 interface PrOwned {
@@ -553,6 +574,7 @@ interface PrOwned {
   repo: string;
   number: number;
   state: string;
+  seen: boolean;
   createdAt: string;
   updatedAt: string;
   url: string;
@@ -564,14 +586,15 @@ function prOwnedOf(pr: OpenPr): PrOwned {
     repo: `📦 ${pr.repo}`,
     number: pr.number,
     state: pr.isDraft ? PR_STATE_DRAFT : PR_STATE_OPEN,
+    seen: false,
     createdAt: pr.createdAt,
     updatedAt: pr.updatedAt,
     url: pr.url,
   };
 }
 
-function prOwnedToProps(o: PrOwned): Record<string, unknown> {
-  return {
+function prOwnedToProps(o: PrOwned, role: PrRole): Record<string, unknown> {
+  const props: Record<string, unknown> = {
     Name: { title: [{ text: { content: o.name.slice(0, 2000) } }] },
     Repo: text(o.repo),
     PR: { number: o.number },
@@ -580,10 +603,13 @@ function prOwnedToProps(o: PrOwned): Record<string, unknown> {
     Actualizado: o.updatedAt === "" ? { date: null } : { date: { start: o.updatedAt } },
     Link: { url: o.url === "" ? null : o.url },
   };
+  if (role === "reviewer") props.Visto = { checkbox: o.seen };
+  return props;
 }
 
 interface ExistingPr {
   pageId: string;
+  icon: string;
   owned: PrOwned;
 }
 
@@ -605,11 +631,13 @@ export async function fetchExistingPrs(
       if (url === "") continue;
       out.set(url, {
         pageId: row.id,
+        icon: row.icon?.emoji ?? "",
         owned: {
           name: readText(p.Name),
           repo: readText(p.Repo),
           number: p.PR?.number ?? 0,
           state: p.Estado?.select?.name ?? "",
+          seen: p.Visto?.checkbox ?? false,
           createdAt: p.Creado?.date?.start ?? "",
           updatedAt: p.Actualizado?.date?.start ?? "",
           url,
@@ -627,14 +655,15 @@ function prOwnedEquals(a: PrOwned, b: PrOwned): boolean {
     a.repo === b.repo &&
     a.number === b.number &&
     a.state === b.state &&
+    a.seen === b.seen &&
     dayMinute(a.createdAt) === dayMinute(b.createdAt) &&
     dayMinute(a.updatedAt) === dayMinute(b.updatedAt) &&
     a.url === b.url
   );
 }
 
-function prIcon(pr: OpenPr): string {
-  if (pr.role === "reviewer") return PR_DB_META.reviewer.icon;
+function prIcon(pr: OpenPr, owned: PrOwned): string {
+  if (pr.role === "reviewer") return owned.seen ? "✅" : PR_DB_META.reviewer.icon;
   return pr.isDraft ? "📝" : PR_DB_META.author.icon;
 }
 
@@ -645,22 +674,29 @@ export async function upsertPr(
   existing: ExistingPr | undefined
 ): Promise<"created" | "updated" | "skipped"> {
   const owned = prOwnedOf(pr);
-  // Preserve a manual Estado override (any option that isn't Open/Draft).
-  if (existing !== undefined && !PR_DERIVED_STATES.has(existing.owned.state)) {
-    owned.state = existing.owned.state;
+  if (existing !== undefined) {
+    // Preserve a manual Estado override (any option that isn't Open/Draft).
+    if (!PR_DERIVED_STATES.has(existing.owned.state)) owned.state = existing.owned.state;
+    // Visto stays ticked until GitHub reports activity newer than what the row already
+    // recorded — a new commit, review or comment then puts the PR back in your queue.
+    const touched = dayMinute(existing.owned.updatedAt) !== dayMinute(pr.updatedAt);
+    owned.seen = existing.owned.seen && !touched;
   }
+  const icon = prIcon(pr, owned);
   if (existing === undefined) {
     await api(cfg, "POST", "/pages", {
       parent: { database_id: databaseId },
-      icon: { type: "emoji", emoji: prIcon(pr) },
-      properties: prOwnedToProps(owned),
+      icon: { type: "emoji", emoji: icon },
+      properties: prOwnedToProps(owned, pr.role),
     });
     return "created";
   }
-  if (prOwnedEquals(existing.owned, owned)) return "skipped";
+  // The icon mirrors owned state, so a stale one is a diff worth writing: ticking Visto
+  // by hand changes nothing else, and without this the row would keep the 👀 icon.
+  if (prOwnedEquals(existing.owned, owned) && existing.icon === icon) return "skipped";
   await api(cfg, "PATCH", `/pages/${existing.pageId}`, {
-    icon: { type: "emoji", emoji: prIcon(pr) },
-    properties: prOwnedToProps(owned),
+    icon: { type: "emoji", emoji: icon },
+    properties: prOwnedToProps(owned, pr.role),
   });
   return "updated";
 }

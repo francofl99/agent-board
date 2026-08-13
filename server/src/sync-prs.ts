@@ -1,6 +1,7 @@
 import {
   archiveRow,
   createPrDatabase,
+  ensurePrSchema,
   fetchExistingPrs,
   findAccessiblePage,
   loadConfig,
@@ -60,6 +61,7 @@ export async function ensurePrDatabase(cfg: NotionConfig): Promise<void> {
 async function syncRole(cfg: NotionConfig, role: PrRole): Promise<string> {
   const databaseId = DB_KEY[role].get(cfg);
   const prs = await PR_FETCHERS[role]();
+  await ensurePrSchema(cfg, databaseId, role);
   const existing = await fetchExistingPrs(cfg, databaseId);
   const liveUrls = new Set(prs.map((p) => p.url));
   let created = 0;
