@@ -530,10 +530,13 @@ const PR_DB_SCHEMA = {
 // "seen at its current state". Only meaningful for PRs waiting on your review.
 const REVIEW_ONLY_SCHEMA = { Visto: { checkbox: {} } };
 
+// Stack position and base branch only come from the GraphQL query behind your own PRs.
+const AUTHOR_ONLY_SCHEMA = { Stack: { rich_text: {} }, Base: { rich_text: {} } };
+
 // Each role gets its own database, so "mine to land" and "waiting on my review" never
 // share a table. Titles, icons and the role-specific extra properties live here.
 export const PR_DB_META: Record<PrRole, { title: string; icon: string; extra: object }> = {
-  author: { title: "My PRs", icon: "🔀", extra: {} },
+  author: { title: "My PRs", icon: "🔀", extra: AUTHOR_ONLY_SCHEMA },
   reviewer: { title: "PRs to review", icon: "👀", extra: REVIEW_ONLY_SCHEMA },
 };
 
@@ -575,6 +578,8 @@ interface PrOwned {
   number: number;
   state: string;
   seen: boolean;
+  stack: string;
+  baseRef: string;
   createdAt: string;
   updatedAt: string;
   url: string;
@@ -587,6 +592,8 @@ function prOwnedOf(pr: OpenPr): PrOwned {
     number: pr.number,
     state: pr.isDraft ? PR_STATE_DRAFT : PR_STATE_OPEN,
     seen: false,
+    stack: pr.stack,
+    baseRef: pr.baseRef === "" ? "" : `🌿 ${pr.baseRef}`,
     createdAt: pr.createdAt,
     updatedAt: pr.updatedAt,
     url: pr.url,
@@ -604,6 +611,10 @@ function prOwnedToProps(o: PrOwned, role: PrRole): Record<string, unknown> {
     Link: { url: o.url === "" ? null : o.url },
   };
   if (role === "reviewer") props.Visto = { checkbox: o.seen };
+  if (role === "author") {
+    props.Stack = text(o.stack);
+    props.Base = text(o.baseRef);
+  }
   return props;
 }
 
@@ -638,6 +649,8 @@ export async function fetchExistingPrs(
           number: p.PR?.number ?? 0,
           state: p.Estado?.select?.name ?? "",
           seen: p.Visto?.checkbox ?? false,
+          stack: readText(p.Stack),
+          baseRef: readText(p.Base),
           createdAt: p.Creado?.date?.start ?? "",
           updatedAt: p.Actualizado?.date?.start ?? "",
           url,
@@ -656,6 +669,8 @@ function prOwnedEquals(a: PrOwned, b: PrOwned): boolean {
     a.number === b.number &&
     a.state === b.state &&
     a.seen === b.seen &&
+    a.stack === b.stack &&
+    a.baseRef === b.baseRef &&
     dayMinute(a.createdAt) === dayMinute(b.createdAt) &&
     dayMinute(a.updatedAt) === dayMinute(b.updatedAt) &&
     a.url === b.url

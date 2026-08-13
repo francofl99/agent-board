@@ -172,7 +172,7 @@ my review" never share a table:
 
 | Database | Config key | Query |
 |----------|-----------|-------|
-| **My PRs** | `prDatabaseId` | `gh search prs --author @me --state open` |
+| **My PRs** | `prDatabaseId` | GraphQL search `is:pr is:open author:@me` (branch names → stack detection) |
 | **PRs to review** | `reviewDatabaseId` | `gh search prs --review-requested @me --state open` — review requested **from you and still pending** |
 
 It reuses your existing **`gh` CLI** login (`gh auth status`), so there is no extra
@@ -207,11 +207,32 @@ npm run sync:prs        # loop every intervalMs
 | `Repo` | Text | `owner/name` |
 | `PR` | Number | PR number |
 | `Estado` | Select (`Open`, `Draft`) | draft PRs flagged separately |
+| `Stack` | Text | **My PRs only** — position in a PR stack (see below) |
+| `Base` | Text | **My PRs only** — branch the PR merges into |
 | `Visto` | Checkbox | **PRs to review only** — you tick it, the sync unticks it (see below) |
 | `Creado` / `Actualizado` | Date | from GitHub |
 | `Link` | URL | opens the PR on GitHub |
 
 Row icons: 🔀 your PR, 📝 your draft, 👀 awaiting your review, ✅ reviewed and quiet.
+
+### `Stack`: which PRs are chained on top of each other
+
+A PR is **stacked** when it targets another open PR's head branch instead of the repo's
+default branch. The sync walks those base→head links and labels every PR in the chain:
+
+```
+🥞 1/3 · #30622     ← the root, based on master
+🥞 2/3 · #30622     ← based on #30622's branch
+🥞 3/3 · #30622     ← based on #30623's branch
+```
+
+The label carries the root PR number, so sorting the table by `Stack` keeps a stack's
+parts together and in order. Standalone PRs get an empty `Stack`. A PR based on a branch
+whose PR is already merged/closed can't be numbered, and reads `🥞 sobre <branch>`.
+
+`gh search prs --json` can't return branch names, so your own PRs are fetched with a
+GraphQL search instead (`gh api graphql`) — same gh credential, one request. That query is
+also less lossy than the search command, so expect a few more rows than before.
 
 ### `Visto`: read once, and know when it changes again
 
