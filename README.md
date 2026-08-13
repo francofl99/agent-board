@@ -173,7 +173,7 @@ my review" never share a table:
 | Database | Config key | Query |
 |----------|-----------|-------|
 | **My PRs** | `prDatabaseId` | GraphQL search `is:pr is:open author:@me` (branch names → stack detection) |
-| **PRs to review** | `reviewDatabaseId` | `gh search prs --review-requested @me --state open` — review requested **from you and still pending** |
+| **PRs to review** | `reviewDatabaseId` | GraphQL search `is:pr is:open review-requested:@me` — review requested **from you and still pending** |
 
 It reuses your existing **`gh` CLI** login (`gh auth status`), so there is no extra
 credential to store — nothing like an API token saved on disk.
@@ -207,13 +207,42 @@ npm run sync:prs        # loop every intervalMs
 | `Repo` | Text | `owner/name` |
 | `PR` | Number | PR number |
 | `Estado` | Select (`Open`, `Draft`) | draft PRs flagged separately |
+| `Merge` | Select | what blocks the merge right now (see below) |
+| `Checks` | Text | which checks are red or still running |
 | `Stack` | Text | **My PRs only** — position in a PR stack (see below) |
-| `Base` | Text | **My PRs only** — branch the PR merges into |
+| `Base` | Text | branch the PR merges into |
 | `Visto` | Checkbox | **PRs to review only** — you tick it, the sync unticks it (see below) |
 | `Creado` / `Actualizado` | Date | from GitHub |
 | `Link` | URL | opens the PR on GitHub |
 
 Row icons: 🔀 your PR, 📝 your draft, 👀 awaiting your review, ✅ reviewed and quiet.
+
+### `Merge` / `Checks`: what's actually blocking the merge
+
+`Merge` is GitHub's own merge-readiness verdict (`mergeStateStatus`), which already
+accounts for branch protection — so `BLOCKED` means a **required** gate is unmet, and the
+sync only inspects checks and reviews to name which one:
+
+| `Merge` | Meaning |
+|---------|---------|
+| `✅ Listo` | mergeable, nothing pending |
+| `👤 Falta review` | required review missing |
+| `🔴 Cambios pedidos` | a reviewer requested changes |
+| `🟡 Checks corriendo` | required checks still running |
+| `❌ Checks requeridos fallando` | a required check is red |
+| `⚠️ Checks no requeridos fallando` | red checks, but none of them blocks the merge |
+| `⚠️ Conflictos` | needs a rebase/merge |
+| `↩️ Falta actualizar base` | branch protection wants it up to date with the base |
+| `📝 Draft` | still a draft |
+
+`Checks` names what's wrong: `❌ build, Jenkins/Continuos-integration +2 (1/6 ok)`, or
+`✅ 6/6` when everything passed. A check that reruns per matrix leg reports the same name
+several times, so only its worst state is kept.
+
+GitHub computes mergeability **on demand** and answers `UNKNOWN` until it's done — a push
+to the base branch invalidates every open PR in that repo at once, so whole batches can
+come back unknown. The sync treats an empty verdict as "no answer this round" and keeps
+the last real one instead of blanking the column.
 
 ### `Stack`: which PRs are chained on top of each other
 

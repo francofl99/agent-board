@@ -1,6 +1,7 @@
 import os from "node:os";
 import path from "node:path";
 import { readFileSync, writeFileSync } from "node:fs";
+import { MERGE_LABELS } from "./prs.js";
 import type { OpenPr, PrRole } from "./prs.js";
 import type { SummaryConfig } from "./summarizer.js";
 import type { Provider, RawSession, SessionStatus } from "./types.js";
@@ -508,6 +509,31 @@ const PR_STATE_DRAFT = "Draft";
 // instead of forcing the row back to Open/Draft.
 const PR_DERIVED_STATES = new Set<string>([PR_STATE_OPEN, PR_STATE_DRAFT]);
 
+// Merge readiness, as reported by GitHub for the PR's required gates.
+const MERGE_COLORS: Record<string, string> = {
+  [MERGE_LABELS.ready]: "green",
+  [MERGE_LABELS.reviewRequired]: "yellow",
+  [MERGE_LABELS.checksRunning]: "yellow",
+  [MERGE_LABELS.behind]: "orange",
+  [MERGE_LABELS.unstable]: "orange",
+  [MERGE_LABELS.conflicts]: "orange",
+  [MERGE_LABELS.checksFailing]: "red",
+  [MERGE_LABELS.changesRequested]: "red",
+  [MERGE_LABELS.blocked]: "red",
+  [MERGE_LABELS.draft]: "gray",
+};
+
+// Properties added after the first databases were created; patched in by ensurePrSchema.
+const PR_LATE_SCHEMA = {
+  Merge: {
+    select: {
+      options: Object.entries(MERGE_COLORS).map(([name, color]) => ({ name, color })),
+    },
+  },
+  Checks: { rich_text: {} },
+  Base: { rich_text: {} },
+};
+
 const PR_DB_SCHEMA = {
   Name: { title: {} },
   Repo: { rich_text: {} },
@@ -523,6 +549,7 @@ const PR_DB_SCHEMA = {
   Creado: { date: {} },
   Actualizado: { date: {} },
   Link: { url: {} },
+  ...PR_LATE_SCHEMA,
 };
 
 // You tick Visto after reading a PR; the sync clears it as soon as GitHub reports a
@@ -530,8 +557,8 @@ const PR_DB_SCHEMA = {
 // "seen at its current state". Only meaningful for PRs waiting on your review.
 const REVIEW_ONLY_SCHEMA = { Visto: { checkbox: {} } };
 
-// Stack position and base branch only come from the GraphQL query behind your own PRs.
-const AUTHOR_ONLY_SCHEMA = { Stack: { rich_text: {} }, Base: { rich_text: {} } };
+// Stacks are only meaningful across your own PRs, so the chain label lives on that DB.
+const AUTHOR_ONLY_SCHEMA = { Stack: { rich_text: {} } };
 
 // Each role gets its own database, so "mine to land" and "waiting on my review" never
 // share a table. Titles, icons and the role-specific extra properties live here.
@@ -566,9 +593,10 @@ export async function ensurePrSchema(
   databaseId: string,
   role: PrRole
 ): Promise<void> {
-  const extra = PR_DB_META[role].extra;
-  if (Object.keys(extra).length === 0 || schemaPatched.has(databaseId)) return;
-  await api(cfg, "PATCH", `/databases/${databaseId}`, { properties: extra });
+  if (schemaPatched.has(databaseId)) return;
+  await api(cfg, "PATCH", `/databases/${databaseId}`, {
+    properties: { ...PR_LATE_SCHEMA, ...PR_DB_META[role].extra },
+  });
   schemaPatched.add(databaseId);
 }
 
@@ -580,6 +608,8 @@ interface PrOwned {
   seen: boolean;
   stack: string;
   baseRef: string;
+  merge: string;
+  checks: string;
   createdAt: string;
   updatedAt: string;
   url: string;
@@ -594,6 +624,8 @@ function prOwnedOf(pr: OpenPr): PrOwned {
     seen: false,
     stack: pr.stack,
     baseRef: pr.baseRef === "" ? "" : `🌿 ${pr.baseRef}`,
+    merge: pr.merge,
+    checks: pr.checks,
     createdAt: pr.createdAt,
     updatedAt: pr.updatedAt,
     url: pr.url,
@@ -609,12 +641,12 @@ function prOwnedToProps(o: PrOwned, role: PrRole): Record<string, unknown> {
     Creado: o.createdAt === "" ? { date: null } : { date: { start: o.createdAt } },
     Actualizado: o.updatedAt === "" ? { date: null } : { date: { start: o.updatedAt } },
     Link: { url: o.url === "" ? null : o.url },
+    Merge: { select: o.merge === "" ? null : { name: o.merge } },
+    Checks: text(o.checks),
+    Base: text(o.baseRef),
   };
   if (role === "reviewer") props.Visto = { checkbox: o.seen };
-  if (role === "author") {
-    props.Stack = text(o.stack);
-    props.Base = text(o.baseRef);
-  }
+  if (role === "author") props.Stack = text(o.stack);
   return props;
 }
 
@@ -651,6 +683,8 @@ export async function fetchExistingPrs(
           seen: p.Visto?.checkbox ?? false,
           stack: readText(p.Stack),
           baseRef: readText(p.Base),
+          merge: p.Merge?.select?.name ?? "",
+          checks: readText(p.Checks),
           createdAt: p.Creado?.date?.start ?? "",
           updatedAt: p.Actualizado?.date?.start ?? "",
           url,
@@ -671,6 +705,8 @@ function prOwnedEquals(a: PrOwned, b: PrOwned): boolean {
     a.seen === b.seen &&
     a.stack === b.stack &&
     a.baseRef === b.baseRef &&
+    a.merge === b.merge &&
+    a.checks === b.checks &&
     dayMinute(a.createdAt) === dayMinute(b.createdAt) &&
     dayMinute(a.updatedAt) === dayMinute(b.updatedAt) &&
     a.url === b.url
@@ -692,6 +728,10 @@ export async function upsertPr(
   if (existing !== undefined) {
     // Preserve a manual Estado override (any option that isn't Open/Draft).
     if (!PR_DERIVED_STATES.has(existing.owned.state)) owned.state = existing.owned.state;
+    // GitHub computes mergeability on demand and answers UNKNOWN when it hasn't yet, so
+    // an empty label means "no answer this round" — keep the last real one rather than
+    // blanking the column until the next poll resolves it.
+    if (owned.merge === "") owned.merge = existing.owned.merge;
     // Visto stays ticked until GitHub reports activity newer than what the row already
     // recorded — a new commit, review or comment then puts the PR back in your queue.
     const touched = dayMinute(existing.owned.updatedAt) !== dayMinute(pr.updatedAt);
