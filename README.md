@@ -1,7 +1,10 @@
 # Agent Board
 
-Sync your local AI coding-agent sessions — **Claude Code**, **Codex**, and (soon)
-**OpenCode** — into a Notion database you can organize like a kanban board.
+A local, read-only dashboard over every AI coding-agent session on your machine —
+**Claude Code**, **Codex**, and (soon) **OpenCode**. It is an index, not a chat
+client: nothing is ever sent to an agent from here, and the primary action on a
+session is opening it in the client it lives in. Syncing to Notion is still
+available as an optional export.
 
 Agent providers keep every session as an append-only JSONL transcript on disk but
 expose no API to list or monitor them. Agent Board reads those files (read-only),
@@ -16,9 +19,14 @@ by the sync.
   - `working` — file written seconds ago, or mid-turn (tool running / user just sent).
   - `waiting_user` — the agent finished its turn; the ball is in your court.
   - `idle` — stale / abandoned mid-turn / no activity.
-- **Deep links** — each row's `Link` opens the session in the provider's app
-  (Claude: `claude://resume?session=<uuid>&folder=<cwd>`).
-- **Zero-setup database** — created automatically on first run; you only provide a token.
+- **Two axes, not one** — provider (Claude / Codex) and client (CLI / desktop) are
+  tracked and badged separately.
+- **Open where it lives** — one keystroke resumes a session in its own client, or in
+  the other client of the same provider.
+- **Cost per session** — tokens in/out plus cache reads and writes, priced per model.
+- **Your columns survive the refresh** — group and notes live in `~/.agent-board`,
+  never derived, never overwritten.
+- **Zero-setup Notion database** — created automatically on first run; you only provide a token.
 - **Diff-based, rate-limit-friendly** — only changed rows are patched.
 - **Filters** — sync a subset by provider, recency, or activity to stay within Notion's
   free block limit.
@@ -29,13 +37,199 @@ by the sync.
 
 ```
 ~/.claude/projects/**/*.jsonl          providers' transcripts (read-only source)
+~/.claude/sessions/<pid>.json          live process registry (pid, name, entrypoint)
 ~/.codex/sessions/**/*.jsonl
-        │  parser + status derivation
+~/.codex/session_index.jsonl
+        │  parser + status derivation + pricing
         ▼
-   sync (diff-based upsert)  ──►  Notion database
+   local API (127.0.0.1:4319)  ──►  web UI  (Fleet + session detail)
+        │
+        └── sync (diff-based upsert)  ──►  Notion database   [optional export]
 ```
 
-## Setup (from zero — you only need a token)
+`~/.agent-board/` holds everything the app writes: `app.json` (discovery paths,
+refresh interval, port), `user-data.json` (your group + notes per session — a
+refresh never touches these), and `pricing.json` (per-model rate overrides).
+
+## The app
+
+```bash
+npm run install:all
+npm run build     # builds the UI into web/dist
+npm start         # http://127.0.0.1:4319
+```
+
+Development (API + Vite with HMR on 4320):
+
+```bash
+npm run dev
+```
+
+The server binds to loopback only — it reads every local transcript, so it must not
+be reachable from the network. There is no login, no cloud, no telemetry.
+
+### View modes
+
+The same live sessions, three ways — `Fleet`, `Board` and `Grafo`, next to the logo in
+the title bar. The right side holds only the scan indicator and an account menu (this
+app has no account: everything stays on your machine) that opens Ajustes.
+The detail panel is shared: selecting a row, a card or a node opens the same thing,
+and so are the filters — state chips and the `/` text filter carry across the three
+modes, so narrowing in Fleet and switching to Board keeps the same set. Grouping is
+the exception: it only means something in Fleet (Board groups by your column, Grafo
+by project), so that control shows there alone.
+
+### Fleet
+
+One dense row per session: status dot, provider mark (a radial burst for Claude, a
+six-lobed knot for Codex — drawn as inline SVG, tinted per provider, so the two are
+told apart by shape as well as colour), client badge (`CLI` / `APP`), name, project · branch, model, messages, tokens, estimated cost and
+last activity. The name is the session's own title ("Umbral de usuarios Ably
+conectados"), not the slug the CLI derives from the cwd — that one is a process
+handle and shows in the detail panel next to the pid, unless you renamed the session
+yourself, in which case your name wins. Provider and client are two axes, not one: a Claude session started
+from the terminal and one started from the desktop app are both Claude.
+
+The two states that mean something is happening carry their own colour everywhere —
+row, board card, graph node and the detail header: amber for `waiting_input`, green for
+`working`. Idle, ended and sessions you closed stay grey and quiet. There is no banner:
+the colour, the `Esperando respuesta` count and `w` (jump to the first one) are enough
+without a bar taking a strip of the window all day.
+
+Filter by state (`Todas` / `Esperando respuesta` / `En curso`, combinable, each with
+its own count), group by project, provider or status, and text-filter with `/`.
+The table sizes itself against its own width (container queries), not the window's,
+because the detail panel takes a third of it: columns drop in reverse order of
+usefulness — tokens, then messages, model, project — and the session name and what it
+is waiting on are the last to go. Under 1080px the panel stops holding its full width;
+under 760px it slides over the list as a drawer that `Esc` (or `✕`) closes.
+
+Filters, grouping and density persist in `localStorage` and survive a reload; they
+are UI preferences, so they stay in the browser rather than in `~/.agent-board`.
+
+| Key | Action |
+|---|---|
+| `j` / `k` | move selection |
+| `⏎` | open in the client the session belongs to |
+| `⇧⏎` | open in the *other* client of the same provider |
+| `x` | close a session you consider done (or reopen it) |
+| `w` | jump to the first session waiting on you |
+| `g` | cycle grouping |
+| `/` | filter |
+
+### Board
+
+Your own columns, sourced from the `Grupo` field — the one the refresh never touches.
+Drag a card to move it; `Sin grupo` holds everything you haven't filed yet, and
+`Nueva columna` adds an empty one (stored in `~/.agent-board/groups.json`, so a column
+survives having no cards). The derived status stays visible on every card: the app
+computes the status, you decide the column.
+
+### Grafo
+
+Project → session → what the session is waiting on **right now**, drawn with elbow
+connectors, collapsible. The third level holds live hand-offs
+only, both read from the transcript: **sub-agents** (`Agent`/`Task`, named by
+`subagent_type`, solid diamond) and **background tasks** (`Bash` with
+`run_in_background`, named by the step's description, hollow diamond), each pulsing
+with how long it has been running.
+
+A hand-off is live from its `tool_use` until it reports back — the `tool_result` for a
+foreground one, the `task-notification` carrying its `tool-use-id` for a backgrounded
+one — so finished work disappears from the graph on the next refresh. The clock is the
+transcript's, not the OS's: a background task clears when its notification is written,
+which is when the agent picks the event up — a few seconds after the process actually
+exited if the agent was busy. A session with no
+live process shows nothing: a transcript abandoned mid-task would otherwise leave a
+ghost running forever. Codex rollouts have no equivalent, so those sessions are leaves.
+
+### Themes
+
+Every colour and both font families come from CSS custom properties, so a theme is a
+bag of tokens. Three ship built in — **Grafito** (neutral, amber accent), **Carbón**
+(warm black, violet accent, amber left to alerts) and **Hielo** (desaturated blue-grey)
+— and `Ajustes` picks between them; the choice lives in `localStorage`.
+
+Drop a JSON file in `~/.agent-board/themes/` and it shows up in the picker next to the
+built-ins. It starts from Grafito, so a file only needs the tokens it changes:
+
+```json
+{
+  "id": "musgo",
+  "name": "Musgo",
+  "desc": "Acento verde sobre la base neutra.",
+  "fonts": "Archivo / Azeret Mono",
+  "tokens": {
+    "--acc": "oklch(0.820 0.140 150)",
+    "--acc-ink": "oklch(0.18 0.05 150)",
+    "--acc-soft": "oklch(0.32 0.060 150)"
+  }
+}
+```
+
+Only `--*` keys are read from a theme file — a theme can restyle the app, not inject
+anything else into it.
+
+### Closing a session you're done with
+
+A session can sit in `waiting_input` forever because you already moved on. `x` — or
+the `✓` button that appears on the row — marks it closed: the row dims, the amber goes
+away, and it stops counting in the banner and in the `Esperando respuesta` filter.
+
+The flag is a timestamp of the session's last activity, not a boolean, so it clears
+itself: the moment that transcript grows again the session comes back on its own as
+`working`, then `waiting_input` when the agent finishes its turn. Nothing to remember
+to undo.
+
+### Session detail
+
+Timeline shows the conversation, newest first, — your prompts and the agent's replies — with the
+harness noise stripped out: injected skill bodies, hook output, slash-command
+wrappers, compaction summaries and tool results never appear as turns. Tool calls are
+hidden behind a `herramientas` toggle, off by default.
+
+Below it: PRs found in the transcript, files the agent touched (relative to the
+session's cwd), your group chips and your notes.
+
+### Opening a session
+
+| Session | What runs |
+|---|---|
+| Claude CLI | `claude --resume <id>` in a Terminal window at the session's cwd |
+| Claude desktop | `claude://resume?session=<id>&folder=<cwd>` |
+| Codex CLI | `codex resume <id>` in a Terminal window at the session's cwd |
+| Codex desktop | `codex://threads/<id>` |
+
+### Status
+
+Each provider is read on its own terms.
+
+**Claude** publishes a pid registry per session (`~/.claude/sessions/<pid>.json`), so
+liveness is exact, and the status comes from the last message turn: a closed assistant
+turn means it is waiting on you, a pending user message or an in-flight tool call means
+it is working.
+
+**Codex** publishes no registry, so a thread is live while its host is up — the desktop
+app-server process for a desktop thread, a terminal `codex` process in that directory
+for a CLI one. Its status comes from the turn events it records itself (`task_started`
+vs `task_complete`), and a thread the app still marks unread counts as waiting on you:
+the answer arrived and you never opened it. Names come from the curated `thread_name`
+in `~/.codex/session_index.jsonl`, not from the first prompt; the workspace root falls
+back to the app's own hint when a rollout carries no `cwd`; and Codex automations
+(`thread_source: "automation"`) are dropped, same as Claude routines.
+
+A session with no live process is `ended`, whatever its last turn looked like.
+
+### Cost
+
+Cost is estimated from the transcript's own token counters, cache reads and writes
+included (agent transcripts are mostly cache, so ignoring them under-reports by an
+order of magnitude). Unknown models cost `—` rather than a made-up number. Override
+rates in `~/.agent-board/pricing.json`.
+
+## Notion export (optional)
+
+### Setup (from zero — you only need a token)
 
 1. Create an internal integration at <https://www.notion.so/my-integrations> and copy
    its token (`ntn_...` / `secret_...`).
