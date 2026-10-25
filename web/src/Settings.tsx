@@ -4,14 +4,12 @@ import { AUTO } from "./useTheme";
 import type { FleetResponse, Settings as AppSettings, Theme } from "./types";
 
 const SHORTCUTS: [string, string][] = [
-  ["Mover la selección", "j / k"],
-  ["Abrir en su cliente", "⏎"],
-  ["Abrir en el otro cliente", "⇧⏎"],
+  ["Mover la selección", "↑ / ↓"],
+  ["Desplegar la sesión", "Espacio"],
   ["Dar por cerrada", "x"],
-  ["Primera esperando", "w"],
-  ["Cambiar agrupación", "g"],
-  ["Filtrar", "/"],
-  ["Cerrar panel / limpiar", "Esc"],
+  ["Buscar", "/"],
+  ["Limpiar la búsqueda / volver", "Esc"],
+  ["Mostrar el panel del notch", "⌘⇧A"],
 ];
 
 interface Props {

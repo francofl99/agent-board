@@ -83,13 +83,3 @@ export interface Settings {
   fleetWindowHours: number;
   port: number;
 }
-
-export interface PrStatus {
-  url: string;
-  number: number;
-  repo: string;
-  title: string;
-  state: "OPEN" | "MERGED" | "CLOSED";
-  merge: string;
-  checks: { name: string; state: string; result: "ok" | "failed" | "pending" }[];
-}

@@ -1,4 +1,4 @@
-import type { DetailResponse, FleetResponse, PrStatus, Settings, Theme } from "./types";
+import type { DetailResponse, FleetResponse, Settings, Theme } from "./types";
 
 // The desktop shell serves the bundled page from its own origin, so it has to name
 // the local API explicitly; the browser build is served by the API itself.
@@ -19,24 +19,8 @@ export const saveTheme = (theme: string) =>
   req<Settings>("/api/settings", { method: "PATCH", body: JSON.stringify({ theme }) });
 export const getSettings = () => req<Settings>("/api/settings");
 
-export const addGroup = (name: string) =>
-  req<{ groups: string[] }>("/api/groups", { method: "POST", body: JSON.stringify({ name }) });
 export const getDetail = (id: string) => req<DetailResponse>(`/api/sessions/${encodeURIComponent(id)}`);
 
-export const openSession = (id: string, target: string) =>
-  req<{ ok: boolean; ran?: string; error?: string }>(`/api/sessions/${encodeURIComponent(id)}/open`, {
-    method: "POST",
-    body: JSON.stringify({ target }),
-  });
-
-export const getSessionPrs = (id: string) =>
-  req<{ prs: PrStatus[] }>(`/api/sessions/${encodeURIComponent(id)}/prs`);
-
-export const openPullRequest = (url: string) =>
-  req<{ ok: boolean }>("/api/open-pr", { method: "POST", body: JSON.stringify({ url }) });
-
-export const revealSession = (id: string) =>
-  req<{ ok: boolean }>(`/api/sessions/${encodeURIComponent(id)}/reveal`, { method: "POST" });
 
 export const saveUser = (id: string, patch: { group?: string; notes?: string; dismissed?: boolean }) =>
   req<{ group: string; notes: string; dismissedAt: string }>(`/api/sessions/${encodeURIComponent(id)}/user`, {
