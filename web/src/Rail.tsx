@@ -1,5 +1,5 @@
 import { type MouseEvent, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { getFleet, openSession } from "./api";
+import { getFleet } from "./api";
 import { ago, statusClass } from "./format";
 import { Notch } from "./Notch";
 import { tauri, type EdgeState } from "./shell";
@@ -14,19 +14,19 @@ function trayTitle(waiting: number, working: number): string {
   return [waiting > 0 ? `⏳${waiting}` : "", working > 0 ? `⚙︎${working}` : ""].filter(Boolean).join(" ");
 }
 
-function Row({ s, opening, onOpen }: { s: Session; opening: boolean; onOpen: (s: Session) => void }) {
+function Row({ s }: { s: Session }) {
   const st = statusClass(s.liveStatus, s.dismissed);
   const running = runningSummary(s);
   return (
-    <button className={`rrow st-${st}`} onClick={() => onOpen(s)} title="Abrir en su cliente">
+    <div className={`rrow st-${st}`}>
       <span className="top">
         <i className={`statusdot ${st}`} />
         <span className="nm">{s.name}</span>
-        <span className="ago mono">{opening ? "abriendo…" : ago(s.lastActivity)}</span>
+        <span className="ago mono">{ago(s.lastActivity)}</span>
       </span>
       {running !== "" && <span className="run mono">◆ {running}</span>}
       <span className="last">{lastAgentText(s)}</span>
-    </button>
+    </div>
   );
 }
 
@@ -41,7 +41,6 @@ export function Rail() {
   const [data, setData] = useState<FleetResponse | null>(null);
   const [error, setError] = useState("");
   const [expanded, setExpanded] = useState(tauri === undefined && (preview === null || preview === "panel"));
-  const [opening, setOpening] = useState<string | null>(null);
   const [edge, setEdge] = useState<EdgeState>(
     preview === null ? { edge: "right", full: false, notchWidth: 0 } : { edge: "notch", full: preview !== "wings", notchWidth: 186 }
   );
@@ -115,7 +114,6 @@ export function Rail() {
   const live = wallOrder((data?.sessions ?? []).filter(isLive));
   const waiting = live.filter((s) => s.liveStatus === "waiting_input");
   const working = live.filter((s) => s.liveStatus === "working");
-  const quiet = (data?.sessions.length ?? 0) - live.length;
 
   useEffect(() => {
     tauri?.core.invoke("set_tray_title", { title: trayTitle(waiting.length, working.length) });
@@ -132,15 +130,6 @@ export function Rail() {
     ro.observe(el);
     return () => ro.disconnect();
   }, [expanded]);
-
-  const open = async (s: Session) => {
-    setOpening(s.id);
-    try {
-      await openSession(s.id, "");
-    } finally {
-      window.setTimeout(() => setOpening(null), 1500);
-    }
-  };
 
   if (edge.edge === "notch") {
     return <Notch data={data} error={error} expanded={expanded} edge={edge} hover={hover} reload={reload} />;
@@ -184,17 +173,16 @@ export function Rail() {
         <>
           {waiting.length > 0 && <div className="label rsec">Esperan tu respuesta</div>}
           {waiting.map((s) => (
-            <Row key={s.id} s={s} opening={opening === s.id} onOpen={open} />
+            <Row key={s.id} s={s} />
           ))}
           {working.length > 0 && <div className="label rsec">Trabajando</div>}
           {working.map((s) => (
-            <Row key={s.id} s={s} opening={opening === s.id} onOpen={open} />
+            <Row key={s.id} s={s} />
           ))}
         </>
       )}
       <div className="rfoot mono">
-        <span>{quiet} quietas</span>
-        <span>{data === null ? "" : `hace ${ago(data.scannedAt)}`}</span>
+        <span>{data === null ? "" : `escaneado hace ${ago(data.scannedAt)}`}</span>
       </div>
     </div>
   );

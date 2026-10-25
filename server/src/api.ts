@@ -4,7 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { loadAppConfig, saveAppConfig } from "./config.js";
 import { scanFleet } from "./fleet.js";
-import { defaultTarget, openSession, optionsFor, revealFile, type OpenTarget } from "./open.js";
+import { defaultTarget, openPullRequest, openSession, optionsFor, revealFile, type OpenTarget } from "./open.js";
 import { readTranscript } from "./timeline.js";
 import { addGroup, knownGroups, saveUserData } from "./store.js";
 import { loadThemes, THEMES_DIR } from "./themes.js";
@@ -117,6 +117,17 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
   if (p === "/api/themes" && req.method === "GET") {
     const [themes, cfg] = await Promise.all([loadThemes(), loadAppConfig()]);
     json(res, 200, { themes, dir: THEMES_DIR, selected: cfg.theme });
+    return;
+  }
+
+  if (p === "/api/open-pr" && req.method === "POST") {
+    const body = await readBody(req);
+    try {
+      await openPullRequest(typeof body.url === "string" ? body.url : "");
+      json(res, 200, { ok: true });
+    } catch (e) {
+      json(res, 400, { ok: false, error: (e as Error).message });
+    }
     return;
   }
 

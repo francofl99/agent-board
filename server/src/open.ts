@@ -71,3 +71,12 @@ export async function openSession(
 export async function revealFile(filePath: string): Promise<void> {
   await run("open", ["-R", filePath]);
 }
+
+// The API answers any local page (CORS is open for the Vite dev server), so it only
+// opens what the panel links to: a GitHub pull request.
+const PR_URL = /^https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/pull\/\d+$/;
+
+export async function openPullRequest(url: string): Promise<void> {
+  if (!PR_URL.test(url)) throw new Error("not a GitHub pull request URL");
+  await run("open", [url]);
+}
