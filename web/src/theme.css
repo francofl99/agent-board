@@ -890,8 +890,6 @@ html.edge-notch body { overflow: hidden; }
   border-radius: 0 0 12px 12px; user-select: none; -webkit-user-select: none; cursor: default;
 }
 .nbar.full { border-radius: 0; }
-.nbar.wings { display: flex; justify-content: space-between; }
-.nwing { width: 56px; display: flex; align-items: center; justify-content: center; }
 .ncount { display: flex; align-items: baseline; gap: 5px; padding: 0 4px; font-family: var(--mono); white-space: nowrap; }
 .ncount b { font-size: 14px; font-weight: 600; }
 .ncount span { font-size: 10.5px; }

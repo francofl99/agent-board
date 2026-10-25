@@ -157,37 +157,13 @@ export function Notch({ data, error, expanded, edge, hover, reload }: Props) {
   if (expanded) {
     return <Panel waiting={waiting} working={working} reload={reload} />;
   }
+  // On a desktop the menu bar is showing and there is no black strip to use: the window
+  // shrinks to the notch itself and only paints its black, so the menu stays clear.
   if (!edge.full) {
-    return <Wings waiting={waiting} working={working} error={error} />;
+    return <div className="nbar" />;
   }
   return (
     <FullBar waiting={waiting} working={working} fresh={fresh} edge={edge} hover={hover} error={error} />
-  );
-}
-
-function Wings({ waiting, working, error }: { waiting: Session[]; working: Session[]; error: string }) {
-  return (
-    <div className="nbar wings">
-      <span className="nwing">
-        {error !== "" ? (
-          <i className="statusdot ended" title={`sin backend — ${error}`} />
-        ) : (
-          waiting.length > 0 && (
-            <span className="ncount wait">
-              <b>{waiting.length}</b>
-              <span>{ago(waiting[0].lastActivity)}</span>
-            </span>
-          )
-        )}
-      </span>
-      <span className="nwing">
-        {error === "" && working.length > 0 && (
-          <span className="ncount work">
-            <b>{working.length}</b>
-          </span>
-        )}
-      </span>
-    </div>
   );
 }
 

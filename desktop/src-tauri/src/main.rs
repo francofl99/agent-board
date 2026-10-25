@@ -20,8 +20,8 @@ const LINGER: Duration = Duration::from_millis(400);
 const REPIN_EVERY: Duration = Duration::from_secs(2);
 // How often to look whether the menu bar is showing on the notch screen.
 const MENU_EVERY: Duration = Duration::from_millis(800);
-// The notch pill reaches this far past each side of the notch while the menu bar shows,
-// and hovering this zone (notch plus wings) is what drops the panel in every notch state.
+// Hovering the notch plus this much on each side drops the panel from the full bar; on a
+// desktop, where the bar hides behind the notch, only the notch itself does.
 const WING: f64 = 56.0;
 // Dropping within this distance of the notch, measured from its centre and from the
 // top of the screen, docks the rail into it.
@@ -269,9 +269,9 @@ struct Shown {
 }
 
 // Collapsed it is a black bar the height of the notch: the whole strip when the menu
-// bar is hidden, wings beside the notch when it shows. Expanded it drops a panel of
-// nearly the whole screen from it. It sits over the menu bar, which the status window
-// level of the panel already allows.
+// bar is hidden, and only the notch's own black shape when it shows, so nothing covers
+// the menu bar. Expanded it drops the panel from it. It sits over the menu bar, which
+// the status window level of the panel already allows.
 fn layout_notch(win: &WebviewWindow, rail: &Rail, notch: Rect, screen: Rect) -> tauri::Result<Shown> {
     let wings = Rect { x: notch.x - WING, y: notch.y, w: notch.w + 2.0 * WING, h: notch.h };
     let frame = if rail.expanded {
@@ -286,7 +286,7 @@ fn layout_notch(win: &WebviewWindow, rail: &Rail, notch: Rect, screen: Rect) -> 
     } else if rail.full {
         Rect { x: screen.x, y: screen.y, w: screen.w, h: notch.h }
     } else {
-        wings
+        notch
     };
     win.set_size(LogicalSize::new(frame.w, frame.h))?;
     win.set_position(LogicalPosition::new(frame.x, frame.y))?;
@@ -537,8 +537,13 @@ fn watch_hover(app: AppHandle) {
             }
             let (Some(c), Some(frame)) = (cursor(&win), window_rect(&win)) else { continue };
             // The full-width bar would drop the panel every time the cursor went up for
-            // the menu of a full-screen app; only the notch and its wings open it.
-            let zone = if r.shown == Edge::Notch && !r.expanded { r.notch_zone.unwrap_or(frame) } else { frame };
+            // the menu of a full-screen app; only the notch and its wings open it, and on a
+            // desktop only the notch, so the menu items beside it stay reachable.
+            let zone = match r.notch_zone {
+                Some(z) if r.shown == Edge::Notch && !r.expanded && r.full => z,
+                Some(z) if r.shown == Edge::Notch && !r.expanded => Rect { x: z.x + WING, w: z.w - 2.0 * WING, ..z },
+                _ => frame,
+            };
             let inside = zone.contains(c);
             let now_over = frame.contains(c);
             if now_over != over {
