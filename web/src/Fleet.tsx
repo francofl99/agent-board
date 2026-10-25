@@ -94,7 +94,7 @@ function Row({ s, selected, onSelect, onOpen, onDismiss }: RowProps) {
       </span>
       <span className="m cost r col-cost">{usd(s.costUsd)}</span>
       <span className="act">
-        <span className="m ago" style={{ color: waiting ? "var(--wait)" : undefined }}>
+        <span className="m ago" style={{ color: waiting ? "var(--wait-ink)" : undefined }}>
           {ago(s.lastActivity)}
         </span>
         <span className="actions">

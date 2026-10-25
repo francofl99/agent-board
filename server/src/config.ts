@@ -10,6 +10,7 @@ export interface AppConfig {
   refreshMs: number;
   fleetWindowHours: number; // how far back a dead session still shows in Fleet
   port: number;
+  theme: string; // a theme id, or "auto" to follow the system appearance
 }
 
 export const CONFIG_DIR = path.join(os.homedir(), ".agent-board");
@@ -25,6 +26,7 @@ export function defaultConfig(): AppConfig {
     refreshMs: 5000,
     fleetWindowHours: 24,
     port: 4319,
+    theme: "auto",
   };
 }
 

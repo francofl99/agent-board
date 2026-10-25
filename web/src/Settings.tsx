@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { getSettings } from "./api";
+import { AUTO } from "./useTheme";
 import type { FleetResponse, Settings as AppSettings, Theme } from "./types";
 
 const SHORTCUTS: [string, string][] = [
@@ -22,6 +23,8 @@ interface Props {
 }
 
 export function Settings({ themes, themesDir, themeId, onPickTheme, fleet }: Props) {
+  const dark = themes.find((t) => t.id === "grafito");
+  const light = themes.find((t) => t.id === "papel");
   const [cfg, setCfg] = useState<AppSettings | null>(null);
 
   useEffect(() => {
@@ -44,9 +47,27 @@ export function Settings({ themes, themesDir, themeId, onPickTheme, fleet }: Pro
         <div>
           <h2>Tema</h2>
           <div className="sub">
-            Cambia toda la paleta y la tipografía. Se guarda local, no afecta los datos.
+            Cambia toda la paleta y la tipografía de la web, el riel y el notch. No afecta los datos.
           </div>
           <div className="themegrid">
+            {dark !== undefined && light !== undefined && (
+              <button className={`themecard${themeId === AUTO ? " on" : ""}`} onClick={() => onPickTheme(AUTO)}>
+                <span className="swatch" style={{ border: `1px solid ${dark.tokens["--line2"]}` }}>
+                  <span style={{ background: dark.tokens["--page"] }} />
+                  <span style={{ background: dark.tokens["--acc"] }} />
+                  <span style={{ background: light.tokens["--page"] }} />
+                  <span style={{ background: light.tokens["--acc"] }} />
+                </span>
+                <span className="nm">
+                  <i />
+                  Automático
+                </span>
+                <span className="desc">
+                  Sigue la apariencia de macOS: {dark.name} con el modo oscuro, {light.name} con el claro.
+                </span>
+                <span className="fonts">{dark.fonts}</span>
+              </button>
+            )}
             {themes.map((t) => (
               <button
                 key={t.id}
