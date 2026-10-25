@@ -33,9 +33,20 @@ function stateText(s: Session): string {
   return `${s.liveStatus === "idle" ? "inactiva" : "terminada"} · ${ago(s.lastActivity)}`;
 }
 
-function lastAgentText(s: Session): string {
+export function lastAgentText(s: Session): string {
   const m = [...s.recentMessages].reverse().find((r) => r.role === "assistant");
   return m?.text ?? s.preview;
+}
+
+export function runningSummary(s: Session): string {
+  const agents = s.running.filter((r) => r.kind === "agent").length;
+  const background = s.running.length - agents;
+  return [
+    agents > 0 ? `${agents} sub-agente${agents > 1 ? "s" : ""}` : "",
+    background > 0 ? `${background} en segundo plano` : "",
+  ]
+    .filter(Boolean)
+    .join(" · ");
 }
 
 function Origin({ s, size }: { s: Session; size: number }) {
@@ -144,15 +155,7 @@ function Stage({ session, scannedAt, onOpen, onDismiss, onBack }: StageProps) {
   const own = primary?.label ?? clientName(session.provider + "-" + (session.client || "cli"));
   const waiting = session.liveStatus === "waiting_input" && !session.dismissed;
   const working = session.liveStatus === "working" && !session.dismissed;
-  const agents = session.running.filter((r) => r.kind === "agent").length;
-  const background = session.running.length - agents;
-  const doing =
-    [
-      agents > 0 ? `${agents} sub-agente${agents > 1 ? "s" : ""}` : "",
-      background > 0 ? `${background} en segundo plano` : "",
-    ]
-      .filter(Boolean)
-      .join(" · ") || "trabajando";
+  const doing = runningSummary(session) || "trabajando";
 
   const metrics: [string, string][] = [
     ["Modelo", shortModel(session.model) || "—"],

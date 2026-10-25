@@ -227,6 +227,28 @@ included (agent transcripts are mostly cache, so ignoring them under-reports by 
 order of magnitude). Unknown models cost `—` rather than a made-up number. Override
 rates in `~/.agent-board/pricing.json`.
 
+### Desktop rail (macOS)
+
+A strip pinned to the right edge of the screen that stays on top of whatever you are
+using, full-screen apps included. Collapsed it shows how many sessions wait on you,
+how many are working, and one dot per live session; hover it and it widens into the
+list — waiting first, with what each one asked or is running. Click a row to open the
+session in its client. The menu bar shows the same counters (`⏳2 ⚙︎3`) and a menu to
+hide the rail or quit.
+
+It is a [Tauri](https://tauri.app) shell around the `?rail` view of the web UI, so it
+needs the API running (`npm start`) and Rust installed:
+
+```bash
+cd desktop
+npm install
+npm run build   # → src-tauri/target/release/bundle/macos/Agent Board Rail.app
+```
+
+macOS has no API to reserve screen space the way the Dock does, so the rail floats
+over the window behind it; it stays 44px wide until hovered. `http://127.0.0.1:4319/?rail`
+renders the same view in a browser.
+
 ## Notion export (optional)
 
 ### Setup (from zero — you only need a token)
