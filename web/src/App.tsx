@@ -69,5 +69,5 @@ export function App() {
     );
   }
 
-  return <List variant="page" data={data} error={error} onDismiss={dismiss} onSettings={() => setSettings(true)} />;
+  return <List data={data} error={error} onDismiss={dismiss} onSettings={() => setSettings(true)} />;
 }

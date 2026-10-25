@@ -32,21 +32,20 @@ function Row({ s }: { s: Session }) {
 // The always-on-top strip of the desktop shell. Collapsed it is a column of status
 // dots; the shell widens it while the cursor is over it and reports that here.
 // Browser-only preview of the notch modes, which otherwise need the desktop shell:
-// ?rail&notch=bar | desktop | panel
+// ?rail&notch=bar | desktop
 const preview = tauri === undefined ? new URLSearchParams(location.search).get("notch") : null;
 
 export function Rail() {
   useTheme();
   const [data, setData] = useState<FleetResponse | null>(null);
   const [error, setError] = useState("");
-  const [expanded, setExpanded] = useState(tauri === undefined && (preview === null || preview === "panel"));
+  const [expanded, setExpanded] = useState(tauri === undefined && preview === null);
   const [edge, setEdge] = useState<EdgeState>(
     preview === null ? { edge: "right", full: false, notchWidth: 0 } : { edge: "notch", full: preview !== "desktop", notchWidth: 186 }
   );
   const [hover, setHover] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
-  const reload = () => getFleet().then(setData, () => {});
 
   useEffect(() => {
     let stop = false;
@@ -130,7 +129,7 @@ export function Rail() {
   }, [expanded]);
 
   if (edge.edge === "notch") {
-    return <Notch data={data} error={error} expanded={expanded} edge={edge} hover={hover} reload={reload} />;
+    return <Notch data={data} error={error} edge={edge} hover={hover} />;
   }
 
   if (!expanded) {

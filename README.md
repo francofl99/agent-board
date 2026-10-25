@@ -66,9 +66,8 @@ be reachable from the network. There is no login, no cloud, no telemetry.
 
 ### The list
 
-One view, the same in the browser and in the panel the desktop notch drops. The bar on
-top counts who waits on you (with the longest wait) and who is working, and holds the
-search, the scan indicator and Ajustes. Below, only the live sessions, in two groups:
+One view. The bar on top counts who waits on you (with the longest wait) and who is
+working, and holds the search, the scan indicator and Ajustes. Below, only the live sessions, in two groups:
 
 - **Te esperan** — sessions that finished their turn, longest wait first, each with the
   first line of what the agent last said.
@@ -86,7 +85,7 @@ model and estimated cost beside them.
 | `Espacio` | unfold / fold the selected session |
 | `x` | close the session: it leaves the list until it moves again |
 | `/` | search by name, project, branch or model |
-| `Esc` | clear the search; in the notch panel, fold it away |
+| `Esc` | clear the search |
 
 ### Themes
 
@@ -166,7 +165,9 @@ same counters (`⏳2 ⚙︎3`) and a menu to move or hide the rail, or quit.
 Docked into the **notch** instead, it uses the black strip a full-screen app leaves
 around the camera: waiting sessions as chips on the left, working ones on the right,
 rotating as a carousel when they don't fit. On a regular desktop it shows nothing.
-Hovering the notch or `⌘⇧A` from any app drops the list as a 960px panel.
+It never expands: pointing at the bar makes it step aside (see-through and click-through)
+so the menu bar the full-screen app hides under it can show, and it comes back a moment
+after the cursor leaves. `⌘⇧A` widens the side rail; in the notch it does nothing.
 
 It is a [Tauri](https://tauri.app) shell around the `?rail` view of the web UI, so it
 needs the API running (`npm start`) and Rust installed:

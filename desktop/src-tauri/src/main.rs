@@ -20,18 +20,12 @@ const LINGER: Duration = Duration::from_millis(400);
 const REPIN_EVERY: Duration = Duration::from_secs(2);
 // How often to look whether the menu bar is showing on the notch screen.
 const MENU_EVERY: Duration = Duration::from_millis(800);
-// Hovering the notch plus this much on each side drops the panel from the full bar; on a
-// desktop, where the bar hides behind the notch, only the notch itself does.
-const WING: f64 = 56.0;
 // Dropping within this distance of the notch, measured from its centre and from the
 // top of the screen, docks the rail into it.
 const NOTCH_SNAP: (f64, f64) = (220.0, 140.0);
-// The dropped panel: a fixed width (never closer than the margin to the screen sides)
-// and this share of the screen height, capped.
-const PANEL_MARGIN: f64 = 24.0;
-const PANEL_HEIGHT: f64 = 0.815;
-const PANEL_WIDTH: f64 = 960.0;
-const PANEL_MAX_HEIGHT: f64 = 640.0;
+// How long the bar stays see-through after the cursor leaves it, so the menu it uncovered
+// doesn't vanish under the bar the moment you head for one of its dropdowns.
+const MENU_LINGER: Duration = Duration::from_millis(1200);
 
 #[derive(Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -99,7 +93,7 @@ struct Rail {
     // What the window shows right now: a Notch placement falls back to the right edge
     // while no screen has a notch (lid closed, external display as main).
     shown: Edge,
-    // The notch screen and the hover zone of the current layout, when shown in the notch.
+    // The notch screen and the notch itself, when shown in the notch.
     notch_screen: Option<Rect>,
     notch_zone: Option<Rect>,
 }
@@ -268,29 +262,18 @@ struct Shown {
     notch_zone: Option<Rect>,
 }
 
-// Collapsed it is a black bar the height of the notch: the whole strip when the menu
-// bar is hidden, and only the notch's own black shape when it shows, so nothing covers
-// the menu bar. Expanded it drops the panel from it. It sits over the menu bar, which
-// the status window level of the panel already allows.
+// A black bar the height of the notch: the whole strip when the menu bar is hidden, and
+// only the notch's own black shape when it shows, so nothing covers the menu bar. It
+// never expands. It sits over the menu bar, which the status window level allows.
 fn layout_notch(win: &WebviewWindow, rail: &Rail, notch: Rect, screen: Rect) -> tauri::Result<Shown> {
-    let wings = Rect { x: notch.x - WING, y: notch.y, w: notch.w + 2.0 * WING, h: notch.h };
-    let frame = if rail.expanded {
-        // Centred under the notch, which sits in the middle of the screen.
-        let w = PANEL_WIDTH.min(screen.w - 2.0 * PANEL_MARGIN);
-        Rect {
-            x: (screen.x + (screen.w - w) / 2.0).round(),
-            y: screen.y,
-            w,
-            h: (screen.h * PANEL_HEIGHT).min(PANEL_MAX_HEIGHT).round(),
-        }
-    } else if rail.full {
+    let frame = if rail.full {
         Rect { x: screen.x, y: screen.y, w: screen.w, h: notch.h }
     } else {
         notch
     };
     win.set_size(LogicalSize::new(frame.w, frame.h))?;
     win.set_position(LogicalPosition::new(frame.x, frame.y))?;
-    Ok(Shown { edge: Edge::Notch, notch_screen: Some(screen), notch_zone: Some(wings) })
+    Ok(Shown { edge: Edge::Notch, notch_screen: Some(screen), notch_zone: Some(notch) })
 }
 
 // Pinned to an edge of the work area (below the menu bar, beside the Dock). macOS
@@ -384,7 +367,7 @@ struct EdgeState {
 #[tauri::command]
 fn rail_edge(rail: State<Mutex<Rail>>) -> EdgeState {
     let r = rail.lock().unwrap();
-    let notch_width = r.notch_zone.map_or(0.0, |z| z.w - 2.0 * WING);
+    let notch_width = r.notch_zone.map_or(0.0, |z| z.w);
     EdgeState { edge: r.shown, full: r.full, notch_width }
 }
 
@@ -501,7 +484,11 @@ fn toggle_notch(app: &AppHandle, win: &WebviewWindow) {
 
 fn toggle_from_keyboard(app: &AppHandle) {
     let Some(win) = app.get_webview_window("rail") else { return };
-    let expanded = app.state::<Mutex<Rail>>().lock().unwrap().expanded;
+    let r = app.state::<Mutex<Rail>>().lock().unwrap().clone();
+    if r.shown == Edge::Notch {
+        return;
+    }
+    let expanded = r.expanded;
     set_expanded(app, &win, !expanded, true);
 }
 
@@ -513,6 +500,8 @@ fn watch_hover(app: AppHandle) {
         let mut pinned_at = Instant::now();
         let mut menu_at = Instant::now();
         let mut over = false;
+        let mut see_through = false;
+        let mut left_at: Option<Instant> = None;
         loop {
             thread::sleep(Duration::from_millis(120));
             let Some(win) = app.get_webview_window("rail") else { continue };
@@ -536,19 +525,27 @@ fn watch_hover(app: AppHandle) {
                 }
             }
             let (Some(c), Some(frame)) = (cursor(&win), window_rect(&win)) else { continue };
-            // The full-width bar would drop the panel every time the cursor went up for
-            // the menu of a full-screen app; only the notch and its wings open it, and on a
-            // desktop only the notch, so the menu items beside it stay reachable.
-            let zone = match r.notch_zone {
-                Some(z) if r.shown == Edge::Notch && !r.expanded && r.full => z,
-                Some(z) if r.shown == Edge::Notch && !r.expanded => Rect { x: z.x + WING, w: z.w - 2.0 * WING, ..z },
-                _ => frame,
-            };
-            let inside = zone.contains(c);
+            // In the notch the panel drops only from the shortcut: the cursor crosses the
+            // top of the screen all the time on its way to menus and window controls.
             let now_over = frame.contains(c);
+            let inside = r.shown != Edge::Notch && now_over;
             if now_over != over {
                 over = now_over;
                 let _ = win.emit("rail-hover", over);
+            }
+            // Pointing at the full bar is reaching for the menu bar a full-screen app
+            // hides under it: the bar steps aside until the cursor has been gone a moment.
+            let want = r.shown == Edge::Notch
+                && r.full
+                && (now_over || (see_through && left_at.get_or_insert_with(Instant::now).elapsed() < MENU_LINGER));
+            if now_over {
+                left_at = None;
+            }
+            if want != see_through {
+                see_through = want;
+                left_at = None;
+                #[cfg(target_os = "macos")]
+                let_menu_through(&win, see_through);
             }
             if r.pinned {
                 continue;
@@ -687,6 +684,17 @@ fn full_screen_space() -> Option<bool> {
 }
 
 #[cfg(target_os = "macos")]
+fn let_menu_through(win: &WebviewWindow, through: bool) {
+    let w = win.clone();
+    let _ = win.run_on_main_thread(move || {
+        if let Some(ns) = ns_window(&w) {
+            ns.setAlphaValue(if through { 0.0 } else { 1.0 });
+            ns.setIgnoresMouseEvents(through);
+        }
+    });
+}
+
+#[cfg(target_os = "macos")]
 fn show_without_focus(win: &WebviewWindow) {
     if let Some(ns) = ns_window(win) {
         ns.orderFrontRegardless();
@@ -762,7 +770,7 @@ fn main() {
             {
                 use tauri_plugin_global_shortcut::GlobalShortcutExt;
                 if let Err(e) = app.global_shortcut().register(toggle_key) {
-                    eprintln!("could not register ⌘⇧A, the panel opens on hover only: {e}");
+                    eprintln!("could not register ⌘⇧A, the notch panel can't be opened: {e}");
                 }
             }
 

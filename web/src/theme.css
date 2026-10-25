@@ -389,18 +389,3 @@ html.edge-notch body { overflow: hidden; }
   .lhint { display: none; }
   .lfoot span:not(.lnote) { display: none; }
 }
-
-/* In the notch the panel hangs from the camera housing: a black header continues it,
-   whatever the theme, and the body below follows the theme. */
-.npanel {
-  width: 100vw; height: 100vh; overflow: hidden; background: var(--page);
-  border-radius: 0 0 26px 26px; border: 1px solid var(--line); border-top: none;
-}
-.list.panel { height: 100%; }
-.list.panel .lhead { background: #000; border-bottom-color: #000; color: oklch(0.94 0.004 260); }
-.list.panel .lcount.wait { color: oklch(0.86 0.145 70); }
-.list.panel .lcount.work { color: oklch(0.81 0.135 155); }
-.list.panel .lsearch { background: oklch(0.2 0.004 260); color: oklch(0.6 0.008 260); }
-.list.panel .lsearch input { color: oklch(0.94 0.004 260); }
-.list.panel .lscan { color: oklch(0.6 0.008 260); }
-.list.panel .lcontent { padding: 16px 16px 24px; gap: 20px; }

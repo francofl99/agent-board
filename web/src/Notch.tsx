@@ -1,7 +1,5 @@
 import { type CSSProperties, type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { saveUser } from "./api";
 import { ago } from "./format";
-import { List } from "./List";
 import { groupByStatus } from "./sessions";
 import { tauri, type EdgeState } from "./shell";
 import type { FleetResponse, Session } from "./types";
@@ -131,13 +129,11 @@ function Side({ side, counter, pin, chips, carousel, page, style }: SideProps) {
 interface Props {
   data: FleetResponse | null;
   error: string;
-  expanded: boolean;
   edge: EdgeState;
   hover: boolean;
-  reload: () => void;
 }
 
-export function Notch({ data, error, expanded, edge, hover, reload }: Props) {
+export function Notch({ data, error, edge, hover }: Props) {
   // Longest wait first: it sits next to the notch and the rest fan outwards.
   const { waiting, working } = groupByStatus(data?.sessions ?? []);
   const fresh = useFresh(waiting.map((s) => s.id));
@@ -147,19 +143,6 @@ export function Notch({ data, error, expanded, edge, hover, reload }: Props) {
     tauri?.core.invoke("rail_height", { height: 32 });
   }, []);
 
-  if (expanded) {
-    return (
-      <div className="npanel">
-        <List
-          variant="panel"
-          data={data}
-          error={error}
-          onDismiss={(s, dismissed) => saveUser(s.id, { dismissed }).then(reload)}
-          onClose={() => tauri?.core.invoke("rail_collapse")}
-        />
-      </div>
-    );
-  }
   // On a desktop the menu bar is showing and there is no black strip to use: the window
   // shrinks to the notch itself and only paints its black, so the menu stays clear.
   if (!edge.full) {
