@@ -62,3 +62,8 @@ export function statusVar(status: string, dismissed = false): string {
 export function statusClass(status: string, dismissed = false): string {
   return dismissed ? "ended" : status;
 }
+
+export function altTarget(s: { provider: string; client: string }): string {
+  if (s.provider === "codex") return s.client === "desktop" ? "codex-cli" : "codex-desktop";
+  return s.client === "desktop" ? "claude-cli" : "claude-desktop";
+}

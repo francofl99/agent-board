@@ -25,6 +25,7 @@ export interface Session {
   pullRequests: string[];
   running: { id: string; name: string; kind: "agent" | "background"; startedAt: string }[];
   preview: string;
+  recentMessages: { role: string; text: string }[];
   filePath: string;
   group: string;
   notes: string;
