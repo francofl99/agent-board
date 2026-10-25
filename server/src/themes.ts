@@ -10,6 +10,7 @@ export interface Theme {
   desc: string;
   fonts: string;
   source: "built-in" | "file";
+  scheme: "dark" | "light";
   tokens: Record<string, string>;
 }
 
@@ -27,6 +28,7 @@ const BUILT_IN: Theme[] = [
     desc: "Neutro frío, acento ámbar reservado para lo que pide acción.",
     fonts: "Archivo / Azeret Mono",
     source: "built-in",
+    scheme: "dark",
     tokens: {
       "--sans": ARCHIVO,
       "--mono": AZERET,
@@ -43,9 +45,11 @@ const BUILT_IN: Theme[] = [
       "--acc-ink": "oklch(0.20 0.05 70)",
       "--acc-soft": "oklch(0.33 0.060 70)",
       "--wait": "oklch(0.860 0.145 70)",
+      "--wait-ink": "oklch(0.860 0.145 70)",
       "--wait-row": "oklch(0.285 0.055 70)",
       "--wait-line": "oklch(0.46 0.10 70)",
       "--ok": "oklch(0.810 0.135 155)",
+      "--ok-ink": "oklch(0.810 0.135 155)",
       "--ok-row": "oklch(0.248 0.038 155)",
       "--ok-line": "oklch(0.410 0.075 155)",
       "--idle": "oklch(0.660 0.008 260)",
@@ -63,6 +67,7 @@ const BUILT_IN: Theme[] = [
     desc: "Negro cálido, acento violeta; el ámbar queda sólo para alertas.",
     fonts: "Instrument Sans / Geist Mono",
     source: "built-in",
+    scheme: "dark",
     tokens: {
       "--sans": INSTRUMENT,
       "--mono": GEIST,
@@ -79,9 +84,11 @@ const BUILT_IN: Theme[] = [
       "--acc-ink": "oklch(0.16 0.04 300)",
       "--acc-soft": "oklch(0.315 0.070 300)",
       "--wait": "oklch(0.860 0.145 55)",
+      "--wait-ink": "oklch(0.860 0.145 55)",
       "--wait-row": "oklch(0.275 0.055 55)",
       "--wait-line": "oklch(0.46 0.10 55)",
       "--ok": "oklch(0.815 0.125 160)",
+      "--ok-ink": "oklch(0.815 0.125 160)",
       "--ok-row": "oklch(0.238 0.034 160)",
       "--ok-line": "oklch(0.405 0.070 160)",
       "--idle": "oklch(0.660 0.006 70)",
@@ -99,6 +106,7 @@ const BUILT_IN: Theme[] = [
     desc: "Azul-gris desaturado, contraste medio. El más calmo de todos.",
     fonts: "Instrument Sans / Geist Mono",
     source: "built-in",
+    scheme: "dark",
     tokens: {
       "--sans": INSTRUMENT,
       "--mono": GEIST,
@@ -115,9 +123,11 @@ const BUILT_IN: Theme[] = [
       "--acc-ink": "oklch(0.18 0.03 230)",
       "--acc-soft": "oklch(0.335 0.045 228)",
       "--wait": "oklch(0.855 0.130 70)",
+      "--wait-ink": "oklch(0.855 0.130 70)",
       "--wait-row": "oklch(0.295 0.055 70)",
       "--wait-line": "oklch(0.460 0.095 70)",
       "--ok": "oklch(0.800 0.090 165)",
+      "--ok-ink": "oklch(0.800 0.090 165)",
       "--ok-row": "oklch(0.268 0.030 165)",
       "--ok-line": "oklch(0.425 0.060 165)",
       "--idle": "oklch(0.680 0.014 235)",
@@ -127,6 +137,45 @@ const BUILT_IN: Theme[] = [
       "--codex": "oklch(0.840 0.070 200)",
       "--codex-bg": "oklch(0.320 0.038 200)",
       "--sel": "oklch(0.305 0.020 235)",
+    },
+  },
+  {
+    id: "papel",
+    name: "Papel",
+    desc: "Claro, casi blanco. Se destaca sobre apps oscuras; el ámbar pasa a texto oscuro.",
+    fonts: "Archivo / Azeret Mono",
+    source: "built-in",
+    scheme: "light",
+    tokens: {
+      "--sans": ARCHIVO,
+      "--mono": AZERET,
+      "--page": "oklch(0.995 0.002 90)",
+      "--bg": "oklch(0.988 0.003 90)",
+      "--bg2": "oklch(0.972 0.004 90)",
+      "--bg3": "oklch(0.945 0.005 260)",
+      "--line": "oklch(0.910 0.004 260)",
+      "--line2": "oklch(0.850 0.006 260)",
+      "--txt": "oklch(0.200 0.010 260)",
+      "--dim": "oklch(0.400 0.010 260)",
+      "--dim2": "oklch(0.550 0.010 260)",
+      "--acc": "oklch(0.220 0.010 260)",
+      "--acc-ink": "oklch(0.990 0 0)",
+      "--acc-soft": "oklch(0.930 0.004 260)",
+      "--wait": "oklch(0.760 0.170 65)",
+      "--wait-ink": "oklch(0.520 0.150 58)",
+      "--wait-row": "oklch(0.970 0.040 85)",
+      "--wait-line": "oklch(0.860 0.090 78)",
+      "--ok": "oklch(0.620 0.160 155)",
+      "--ok-ink": "oklch(0.450 0.120 155)",
+      "--ok-row": "oklch(0.970 0.025 155)",
+      "--ok-line": "oklch(0.870 0.060 155)",
+      "--idle": "oklch(0.620 0.010 260)",
+      "--ended": "oklch(0.720 0.008 260)",
+      "--claude": "oklch(0.500 0.140 40)",
+      "--claude-bg": "oklch(0.930 0.040 40)",
+      "--codex": "oklch(0.480 0.090 215)",
+      "--codex-bg": "oklch(0.930 0.030 205)",
+      "--sel": "oklch(0.930 0.020 70)",
     },
   },
 ];
@@ -157,6 +206,7 @@ export async function loadThemes(): Promise<Theme[]> {
         desc: typeof o.desc === "string" ? o.desc : "",
         fonts: typeof o.fonts === "string" ? o.fonts : "",
         source: "file",
+        scheme: o.scheme === "light" ? "light" : "dark",
         // A file theme starts from Grafito, so a partial file only overrides what it names.
         tokens: { ...BUILT_IN[0].tokens, ...sanitize(o.tokens) },
       });

@@ -115,7 +115,8 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
   }
 
   if (p === "/api/themes" && req.method === "GET") {
-    json(res, 200, { themes: await loadThemes(), dir: THEMES_DIR });
+    const [themes, cfg] = await Promise.all([loadThemes(), loadAppConfig()]);
+    json(res, 200, { themes, dir: THEMES_DIR, selected: cfg.theme });
     return;
   }
 

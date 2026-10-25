@@ -70,6 +70,7 @@ export interface Theme {
   desc: string;
   fonts: string;
   source: "built-in" | "file";
+  scheme: "dark" | "light";
   tokens: Record<string, string>;
 }
 

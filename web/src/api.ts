@@ -14,7 +14,9 @@ async function req<T>(url: string, init?: RequestInit): Promise<T> {
 }
 
 export const getFleet = () => req<FleetResponse>("/api/fleet");
-export const getThemes = () => req<{ themes: Theme[]; dir: string }>("/api/themes");
+export const getThemes = () => req<{ themes: Theme[]; dir: string; selected: string }>("/api/themes");
+export const saveTheme = (theme: string) =>
+  req<Settings>("/api/settings", { method: "PATCH", body: JSON.stringify({ theme }) });
 export const getSettings = () => req<Settings>("/api/settings");
 
 export const addGroup = (name: string) =>
