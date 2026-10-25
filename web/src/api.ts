@@ -1,7 +1,11 @@
 import type { DetailResponse, FleetResponse, Settings, Theme } from "./types";
 
+// The desktop shell serves the bundled page from its own origin, so it has to name
+// the local API explicitly; the browser build is served by the API itself.
+const BASE = "__TAURI__" in window ? "http://127.0.0.1:4319" : "";
+
 async function req<T>(url: string, init?: RequestInit): Promise<T> {
-  const r = await fetch(url, {
+  const r = await fetch(BASE + url, {
     ...init,
     headers: init?.body ? { "content-type": "application/json" } : undefined,
   });

@@ -10,3 +10,7 @@ notion.json
 # vite/build caches
 .vite/
 tsconfig.tsbuildinfo
+
+# desktop shell build output
+target/
+desktop/src-tauri/gen/
