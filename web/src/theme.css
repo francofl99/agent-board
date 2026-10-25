@@ -1030,6 +1030,16 @@ html.edge-notch body { overflow: hidden; }
 .nmetrics .v { font-family: var(--mono); font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .npr { display: flex; align-items: baseline; gap: 8px; font-size: 13.5px; }
 .npr b { font-family: var(--mono); font-size: 13px; color: var(--wait); }
+.nprblock { display: flex; flex-direction: column; gap: 6px; }
+.nprblock + .nprblock { margin-top: 8px; }
+.npills { display: flex; gap: 6px; flex-wrap: wrap; }
+.npill { font-size: 12px; padding: 2px 8px; border-radius: 999px; background: var(--bg3); color: var(--dim); }
+.npill.ok { background: var(--ok-row); color: var(--ok); }
+.npill.wait { background: var(--wait-row); color: var(--wait); }
+.ncheck { display: flex; align-items: center; gap: 8px; font-family: var(--mono); font-size: 12px; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ncheck i { font-style: normal; width: 10px; flex: none; text-align: center; color: var(--dim2); }
+.ncheck.ok i { color: var(--ok); }
+.ncheck.failed i { color: var(--wait); }
 .nfile { font-family: var(--mono); font-size: 12px; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .nfoot { display: flex; align-items: center; gap: 18px; padding: 11px 24px 14px; border-top: 1px solid var(--line); font-size: 12.5px; color: var(--dim2); }
 .nfoot b { font-family: var(--mono); font-weight: 500; color: var(--dim); }

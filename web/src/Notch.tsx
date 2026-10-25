@@ -1,10 +1,10 @@
 import { type CSSProperties, type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { getDetail, openSession, saveUser } from "./api";
+import { getDetail, getSessionPrs, openSession, saveUser } from "./api";
 import { ago, altTarget, clock, duration, projectName, shortModel, tokens, usd } from "./format";
 import { ProviderIcon } from "./ProviderIcon";
 import { tauri, type EdgeState } from "./shell";
 import { lastAgentText, runningSummary } from "./Wall";
-import type { DetailResponse, FleetResponse, Session } from "./types";
+import type { DetailResponse, FleetResponse, PrStatus, Session } from "./types";
 
 // A fixed-width chip plus its gap: the step of the carousel.
 const CHIP = 168;
@@ -492,7 +492,63 @@ function Panel({ waiting, working, quiet, reload }: PanelProps) {
   );
 }
 
+const MERGE_TEXT: Record<string, string> = {
+  draft: "draft",
+  conflicts: "conflictos",
+  behind: "falta actualizar base",
+  checksFailing: "checks requeridos fallando",
+  changesRequested: "cambios pedidos",
+  checksRunning: "checks corriendo",
+  reviewRequired: "falta review",
+  blocked: "bloqueado",
+  unstable: "checks no requeridos fallando",
+  ready: "listo para mergear",
+};
+const CHECK_MARK = { ok: "✓", failed: "✕", pending: "●" };
+const MAX_CHECKS = 8;
+
+function PrBlock({ pr }: { pr: PrStatus }) {
+  const ok = pr.checks.filter((c) => c.result === "ok").length;
+  const merge =
+    pr.state === "MERGED" ? "mergeado" : pr.state === "CLOSED" ? "cerrado" : MERGE_TEXT[pr.merge] ?? "";
+  const mergeTone = pr.state === "MERGED" || pr.merge === "ready" ? "ok" : pr.state === "CLOSED" ? "" : "wait";
+  return (
+    <div className="nprblock">
+      <span className="npr">
+        <b>#{pr.number}</b>
+        <span>{pr.title}</span>
+      </span>
+      <span className="npills">
+        {pr.checks.length > 0 && (
+          <span className={`npill ${ok === pr.checks.length ? "ok" : "wait"}`}>
+            checks {ok}/{pr.checks.length}
+          </span>
+        )}
+        {merge !== "" && <span className={`npill ${mergeTone}`}>{merge}</span>}
+      </span>
+      {pr.checks.slice(0, MAX_CHECKS).map((c) => (
+        <span className={`ncheck ${c.result}`} key={c.name}>
+          <i>{CHECK_MARK[c.result]}</i>
+          {c.name}
+        </span>
+      ))}
+    </div>
+  );
+}
+
 function Context({ s, detail }: { s: Session; detail: DetailResponse | null }) {
+  const [statuses, setStatuses] = useState<PrStatus[] | null>(null);
+  useEffect(() => {
+    let live = true;
+    getSessionPrs(s.id).then(
+      (r) => live && setStatuses(r.prs),
+      () => live && setStatuses([])
+    );
+    return () => {
+      live = false;
+    };
+  }, [s.id, s.lastActivity]);
+  useEffect(() => setStatuses(null), [s.id]);
 
   const metrics: [string, string][] = [
     ["Modelo", shortModel(s.model) || "—"],
@@ -518,7 +574,14 @@ function Context({ s, detail }: { s: Session; detail: DetailResponse | null }) {
           ))}
         </div>
       </div>
-      {prs.length > 0 && (
+      {statuses !== null && statuses.length > 0 ? (
+        <div className="nsec">
+          <div className="nlabel">Pull request{statuses.length > 1 ? "s" : ""}</div>
+          {statuses.map((pr) => (
+            <PrBlock pr={pr} key={pr.url} />
+          ))}
+        </div>
+      ) : prs.length > 0 && (
         <div className="nsec">
           <div className="nlabel">Pull request{prs.length > 1 ? "s" : ""}</div>
           {prs.map((u) => {

@@ -70,7 +70,7 @@ export const MERGE_LABELS = {
 const OK_CHECK_STATES = new Set(["SUCCESS", "SKIPPED", "NEUTRAL"]);
 const FAILED_CHECK_STATES = new Set(["FAILURE", "ERROR", "CANCELLED", "TIMED_OUT", "ACTION_REQUIRED"]);
 
-interface CheckState {
+export interface CheckState {
   name: string;
   state: string;
 }
@@ -111,32 +111,39 @@ function checksSummary(checks: CheckState[]): string {
   return `${icon} ${shown.join(", ")}${more} (${checks.length - problems.length}/${checks.length} ok)`;
 }
 
-function mergeLabel(raw: any, checks: CheckState[]): string {
+type MergeKind = keyof typeof MERGE_LABELS;
+
+function mergeKind(raw: any, checks: CheckState[]): MergeKind | "" {
   const failing = checks.some((c) => FAILED_CHECK_STATES.has(c.state));
   const running = checks.some((c) => !FAILED_CHECK_STATES.has(c.state) && !OK_CHECK_STATES.has(c.state));
   const decision = String(raw.reviewDecision ?? "");
   switch (String(raw.mergeStateStatus ?? "")) {
     case "DRAFT":
-      return MERGE_LABELS.draft;
+      return "draft";
     case "DIRTY":
-      return MERGE_LABELS.conflicts;
+      return "conflicts";
     case "BEHIND":
-      return MERGE_LABELS.behind;
+      return "behind";
     case "UNSTABLE":
-      return MERGE_LABELS.unstable;
+      return "unstable";
     case "BLOCKED":
-      if (failing) return MERGE_LABELS.checksFailing;
-      if (decision === "CHANGES_REQUESTED") return MERGE_LABELS.changesRequested;
-      if (running) return MERGE_LABELS.checksRunning;
-      if (decision === "REVIEW_REQUIRED" || decision === "") return MERGE_LABELS.reviewRequired;
-      return MERGE_LABELS.blocked;
+      if (failing) return "checksFailing";
+      if (decision === "CHANGES_REQUESTED") return "changesRequested";
+      if (running) return "checksRunning";
+      if (decision === "REVIEW_REQUIRED" || decision === "") return "reviewRequired";
+      return "blocked";
     case "CLEAN":
     case "HAS_HOOKS":
-      return MERGE_LABELS.ready;
+      return "ready";
     default:
       // UNKNOWN: GitHub is still computing mergeability, or we lack permission to see it.
-      return String(raw.mergeable ?? "") === "CONFLICTING" ? MERGE_LABELS.conflicts : "";
+      return String(raw.mergeable ?? "") === "CONFLICTING" ? "conflicts" : "";
   }
+}
+
+function mergeLabel(raw: any, checks: CheckState[]): string {
+  const kind = mergeKind(raw, checks);
+  return kind === "" ? "" : MERGE_LABELS[kind];
 }
 
 interface StackNode {
@@ -235,3 +242,59 @@ export const PR_FETCHERS: Record<PrRole, (limit?: number) => Promise<OpenPr[]>> 
   author: (limit = 100) => fetchPrs("author", limit),
   reviewer: (limit = 100) => fetchPrs("reviewer", limit),
 };
+
+export interface PrStatus {
+  url: string;
+  number: number;
+  repo: string;
+  title: string;
+  state: string; // OPEN, MERGED or CLOSED
+  merge: MergeKind | ""; // only for open PRs
+  checks: (CheckState & { result: "ok" | "failed" | "pending" })[];
+}
+
+const STATUS_QUERY = `query($url: URI!) {
+  resource(url: $url) { ... on PullRequest {
+    number title url state isDraft mergeable mergeStateStatus reviewDecision
+    repository { nameWithOwner }
+    commits(last: 1) { nodes { commit { statusCheckRollup {
+      contexts(last: 40) { nodes {
+        ... on CheckRun { name conclusion status }
+        ... on StatusContext { context state }
+      } }
+    } } } }
+  } }
+}`;
+
+const STATUS_TTL_MS = 60_000;
+const statusCache = new Map<string, { at: number; status: Promise<PrStatus | null> }>();
+
+async function fetchStatus(url: string): Promise<PrStatus | null> {
+  const stdout = await gh(["api", "graphql", "-f", `query=${STATUS_QUERY}`, "-f", `url=${url}`], "gh api graphql (PR status)");
+  const r = JSON.parse(stdout)?.data?.resource;
+  if (r?.number === undefined) return null;
+  const checks = normalizeChecks(r.commits?.nodes?.[0]?.commit?.statusCheckRollup?.contexts?.nodes ?? []);
+  const state = String(r.state ?? "");
+  return {
+    url: String(r.url ?? url),
+    number: r.number,
+    repo: String(r.repository?.nameWithOwner ?? ""),
+    title: String(r.title ?? ""),
+    state,
+    merge: state === "OPEN" ? mergeKind(r, checks) : "",
+    checks: checks.map((c) => ({
+      ...c,
+      result: FAILED_CHECK_STATES.has(c.state) ? "failed" : OK_CHECK_STATES.has(c.state) ? "ok" : "pending",
+    })),
+  };
+}
+
+// The notch panel asks on every poll while a session is selected; GitHub only needs
+// asking once a minute. A failed lookup (gh missing, no access) caches as null too.
+export function prStatus(url: string): Promise<PrStatus | null> {
+  const hit = statusCache.get(url);
+  if (hit !== undefined && Date.now() - hit.at < STATUS_TTL_MS) return hit.status;
+  const status = fetchStatus(url).catch(() => null);
+  statusCache.set(url, { at: Date.now(), status });
+  return status;
+}

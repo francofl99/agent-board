@@ -1,4 +1,4 @@
-import type { DetailResponse, FleetResponse, Settings, Theme } from "./types";
+import type { DetailResponse, FleetResponse, PrStatus, Settings, Theme } from "./types";
 
 // The desktop shell serves the bundled page from its own origin, so it has to name
 // the local API explicitly; the browser build is served by the API itself.
@@ -26,6 +26,9 @@ export const openSession = (id: string, target: string) =>
     method: "POST",
     body: JSON.stringify({ target }),
   });
+
+export const getSessionPrs = (id: string) =>
+  req<{ prs: PrStatus[] }>(`/api/sessions/${encodeURIComponent(id)}/prs`);
 
 export const revealSession = (id: string) =>
   req<{ ok: boolean }>(`/api/sessions/${encodeURIComponent(id)}/reveal`, { method: "POST" });

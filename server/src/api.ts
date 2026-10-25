@@ -8,6 +8,7 @@ import { defaultTarget, openSession, optionsFor, revealFile, type OpenTarget } f
 import { readTranscript } from "./timeline.js";
 import { addGroup, knownGroups, saveUserData } from "./store.js";
 import { loadThemes, THEMES_DIR } from "./themes.js";
+import { prStatus } from "./prs.js";
 import type { ScanResult } from "./fleet.js";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -178,6 +179,14 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
       } catch (e) {
         json(res, 500, { ok: false, error: (e as Error).message });
       }
+      return;
+    }
+
+    // Most recent last in the transcript; the panel only has room for a few.
+    if (action === "/prs" && req.method === "GET") {
+      const urls = [...new Set(s.pullRequests)].slice(-3).reverse();
+      const statuses = await Promise.all(urls.map(prStatus));
+      json(res, 200, { prs: statuses.filter((x) => x !== null) });
       return;
     }
 
