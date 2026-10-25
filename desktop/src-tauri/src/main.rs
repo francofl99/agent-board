@@ -26,9 +26,12 @@ const WING: f64 = 56.0;
 // Dropping within this distance of the notch, measured from its centre and from the
 // top of the screen, docks the rail into it.
 const NOTCH_SNAP: (f64, f64) = (220.0, 140.0);
-// The dropped panel: the screen minus this margin on each side, and this share of its height.
+// The dropped panel: a fixed width (never closer than the margin to the screen sides)
+// and this share of the screen height, capped.
 const PANEL_MARGIN: f64 = 24.0;
 const PANEL_HEIGHT: f64 = 0.815;
+const PANEL_WIDTH: f64 = 960.0;
+const PANEL_MAX_HEIGHT: f64 = 640.0;
 
 #[derive(Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -272,11 +275,13 @@ struct Shown {
 fn layout_notch(win: &WebviewWindow, rail: &Rail, notch: Rect, screen: Rect) -> tauri::Result<Shown> {
     let wings = Rect { x: notch.x - WING, y: notch.y, w: notch.w + 2.0 * WING, h: notch.h };
     let frame = if rail.expanded {
+        // Centred under the notch, which sits in the middle of the screen.
+        let w = PANEL_WIDTH.min(screen.w - 2.0 * PANEL_MARGIN);
         Rect {
-            x: screen.x + PANEL_MARGIN,
+            x: (screen.x + (screen.w - w) / 2.0).round(),
             y: screen.y,
-            w: screen.w - 2.0 * PANEL_MARGIN,
-            h: (screen.h * PANEL_HEIGHT).round(),
+            w,
+            h: (screen.h * PANEL_HEIGHT).min(PANEL_MAX_HEIGHT).round(),
         }
     } else if rail.full {
         Rect { x: screen.x, y: screen.y, w: screen.w, h: notch.h }

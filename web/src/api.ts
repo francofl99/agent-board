@@ -32,6 +32,9 @@ export const openSession = (id: string, target: string) =>
 export const getSessionPrs = (id: string) =>
   req<{ prs: PrStatus[] }>(`/api/sessions/${encodeURIComponent(id)}/prs`);
 
+export const openPullRequest = (url: string) =>
+  req<{ ok: boolean }>("/api/open-pr", { method: "POST", body: JSON.stringify({ url }) });
+
 export const revealSession = (id: string) =>
   req<{ ok: boolean }>(`/api/sessions/${encodeURIComponent(id)}/reveal`, { method: "POST" });
 

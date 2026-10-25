@@ -1,22 +1,19 @@
 import { type CSSProperties, type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { getDetail, getSessionPrs, openSession, saveUser } from "./api";
-import { ago, altTarget, clock, duration, projectName, shortModel, tokens, usd } from "./format";
+import { getSessionPrs, openPullRequest, saveUser } from "./api";
+import { ago, duration, projectName, shortModel, tokens, usd } from "./format";
 import { ProviderIcon } from "./ProviderIcon";
 import { tauri, type EdgeState } from "./shell";
 import { lastAgentText, runningSummary } from "./Wall";
-import type { DetailResponse, FleetResponse, PrStatus, Session } from "./types";
+import type { FleetResponse, PrStatus, Session } from "./types";
 
 // A fixed-width chip plus its gap: the step of the carousel.
 const CHIP = 168;
 const STEP = CHIP + 6;
 const PAGE_MS = 3500;
 const FRESH_MS = 5000;
-const QUIET_ROWS = 8;
 
 const firstLine = (t: string) => t.split("\n").find((l) => l.trim() !== "")?.trim() ?? "";
 const home = (p: string | null) => (p ?? "").replace(/^\/Users\/[^/]+/, "~");
-const open = (s: Session, target = "") =>
-  openSession(s.id, target).finally(() => tauri?.core.invoke("rail_collapse"));
 
 // Sessions that start waiting while the bar is up are flagged for a few seconds, so
 // the new one enters filled next to the notch before settling in with the rest.
@@ -39,21 +36,17 @@ function useFresh(ids: string[]): Set<string> {
 // Chips carry the title and the time only, so as many sessions as possible fit.
 function WaitChip({ s, fresh, fixed }: { s: Session; fresh?: boolean; fixed?: boolean }) {
   return (
-    <button
-      className={`nchip wait${fresh ? " fresh" : ""}${fixed ? " fixed" : ""}`}
-      onClick={() => open(s)}
-      title={`${s.name} — abrir`}
-    >
+    <span className={`nchip wait${fresh ? " fresh" : ""}${fixed ? " fixed" : ""}`} title={s.name}>
       <i className="dot" />
       <span className="nm">{s.name}</span>
       <span className="t">{fresh ? "ahora" : ago(s.lastActivity)}</span>
-    </button>
+    </span>
   );
 }
 
 function WorkChip({ s, fixed }: { s: Session; fixed?: boolean }) {
   return (
-    <button className={`nchip work${fixed ? " fixed" : ""}`} onClick={() => open(s)} title={`${s.name} — abrir`}>
+    <span className={`nchip work${fixed ? " fixed" : ""}`} title={s.name}>
       <span className="pulse">
         <i />
         <i />
@@ -61,7 +54,7 @@ function WorkChip({ s, fixed }: { s: Session; fixed?: boolean }) {
       </span>
       <span className="nm">{s.name}</span>
       <span className="t">{ago(s.lastActivity)}</span>
-    </button>
+    </span>
   );
 }
 
@@ -154,9 +147,6 @@ export function Notch({ data, error, expanded, edge, hover, reload }: Props) {
     .filter((s) => s.liveStatus === "waiting_input")
     .sort((a, b) => a.lastActivity.localeCompare(b.lastActivity));
   const working = live.filter((s) => s.liveStatus === "working");
-  const quiet = sessions
-    .filter((s) => !live.includes(s))
-    .sort((a, b) => b.lastActivity.localeCompare(a.lastActivity));
   const fresh = useFresh(waiting.map((s) => s.id));
 
   // The shell shows the window once the page reports in.
@@ -165,13 +155,13 @@ export function Notch({ data, error, expanded, edge, hover, reload }: Props) {
   }, []);
 
   if (expanded) {
-    return <Panel waiting={waiting} working={working} quiet={quiet} reload={reload} />;
+    return <Panel waiting={waiting} working={working} reload={reload} />;
   }
   if (!edge.full) {
     return <Wings waiting={waiting} working={working} error={error} />;
   }
   return (
-    <FullBar waiting={waiting} working={working} quiet={quiet.length} fresh={fresh} edge={edge} hover={hover} error={error} />
+    <FullBar waiting={waiting} working={working} fresh={fresh} edge={edge} hover={hover} error={error} />
   );
 }
 
@@ -204,14 +194,13 @@ function Wings({ waiting, working, error }: { waiting: Session[]; working: Sessi
 interface FullBarProps {
   waiting: Session[];
   working: Session[];
-  quiet: number;
   fresh: Set<string>;
   edge: EdgeState;
   hover: boolean;
   error: string;
 }
 
-function FullBar({ waiting, working, quiet, fresh, edge, hover, error }: FullBarProps) {
+function FullBar({ waiting, working, fresh, edge, hover, error }: FullBarProps) {
   const [page, setPage] = useState(0);
   useEffect(() => {
     if (hover) return;
@@ -265,7 +254,7 @@ function FullBar({ waiting, working, quiet, fresh, edge, hover, error }: FullBar
           />
           <Side
             side="right"
-            style={{ left: `calc(50% + ${gap}px)`, right: 110 }}
+            style={{ left: `calc(50% + ${gap}px)`, right: 14 }}
             counter={workCounter}
             chips={working.map((s) => <WorkChip key={s.id} s={s} />)}
             carousel={working.map((s) => <WorkChip key={s.id} s={s} fixed />)}
@@ -273,10 +262,6 @@ function FullBar({ waiting, working, quiet, fresh, edge, hover, error }: FullBar
           />
         </>
       )}
-      <span className="nquiet">
-        <span>{quiet} quietas</span>
-        <i className={error === "" ? "ok" : ""} />
-      </span>
     </div>
   );
 }
@@ -284,7 +269,6 @@ function FullBar({ waiting, working, quiet, fresh, edge, hover, error }: FullBar
 interface PanelProps {
   waiting: Session[];
   working: Session[];
-  quiet: Session[];
   reload: () => void;
 }
 
@@ -297,30 +281,10 @@ const LIVE_LABEL: Record<string, string> = {
 
 // Drops like a pull-down terminal: the list on the left, the selected session in the
 // middle, its numbers and output on the right, all reachable from the keyboard.
-function Panel({ waiting, working, quiet, reload }: PanelProps) {
-  const rows = [...waiting, ...working, ...quiet.slice(0, QUIET_ROWS)];
+function Panel({ waiting, working, reload }: PanelProps) {
+  const rows = [...waiting, ...working];
   const [selId, setSelId] = useState<string | null>(null);
   const sel = rows.find((s) => s.id === selId) ?? rows[0];
-  const [detail, setDetail] = useState<DetailResponse | null>(null);
-  const [showPrompts, setShowPrompts] = useState(false);
-  const [showTools, setShowTools] = useState(false);
-
-  useEffect(() => {
-    if (sel === undefined) return;
-    let live = true;
-    getDetail(sel.id).then((d) => {
-      if (live) setDetail(d);
-    });
-    return () => {
-      live = false;
-    };
-  }, [sel?.id, sel?.lastActivity]);
-
-  const current = detail !== null && detail.session.id === sel?.id ? detail : null;
-  const options = current?.openOptions ?? [];
-  const primary = options.find((o) => o.target === current?.defaultTarget) ?? options[0];
-  const alt = sel === undefined ? undefined : options.find((o) => o.target === altTarget(sel));
-
   const dismiss = (s: Session) => saveUser(s.id, { dismissed: !s.dismissed }).then(reload);
 
   useEffect(() => {
@@ -329,7 +293,6 @@ function Panel({ waiting, working, quiet, reload }: PanelProps) {
       if (e.key === "Escape") tauri?.core.invoke("rail_collapse");
       else if (e.key === "ArrowDown" && i < rows.length - 1) setSelId(rows[i + 1].id);
       else if (e.key === "ArrowUp" && i > 0) setSelId(rows[i - 1].id);
-      else if (e.key === "Enter" && sel !== undefined) open(sel, e.shiftKey ? altTarget(sel) : "");
       else if (e.key === "x" && sel !== undefined) dismiss(sel);
       else return;
       e.preventDefault();
@@ -338,10 +301,6 @@ function Panel({ waiting, working, quiet, reload }: PanelProps) {
     return () => window.removeEventListener("keydown", onKey);
   });
 
-  const timeline = (current?.timeline ?? [])
-    .filter((e) => (e.kind === "tool" ? showTools : e.kind === "prompt" ? showPrompts : true))
-    .slice(-30);
-
   const row = (s: Session) => {
     const w = s.liveStatus === "waiting_input";
     return (
@@ -349,7 +308,6 @@ function Panel({ waiting, working, quiet, reload }: PanelProps) {
         key={s.id}
         className={`nrow ${w ? "wait" : "work"}${s.id === sel?.id ? " sel" : ""}`}
         onClick={() => setSelId(s.id)}
-        onDoubleClick={() => open(s)}
       >
         <span className="ico">
           <ProviderIcon provider={s.provider} size={13} />
@@ -387,23 +345,10 @@ function Panel({ waiting, working, quiet, reload }: PanelProps) {
           {waiting.map(row)}
           {working.length > 0 && <div className="nlabel">Trabajando</div>}
           {working.map(row)}
-          {quiet.length > 0 && <div className="nlabel">Quietas y terminadas</div>}
-          {quiet.slice(0, QUIET_ROWS).map((s) => (
-            <button
-              key={s.id}
-              className={`nquietrow${s.id === sel?.id ? " sel" : ""}`}
-              onClick={() => setSelId(s.id)}
-              onDoubleClick={() => open(s)}
-            >
-              <i />
-              <span className="nm">{s.name}</span>
-              <span className="t">{ago(s.lastActivity)}</span>
-            </button>
-          ))}
         </div>
 
         {sel === undefined ? (
-          <div className="nempty">Ninguna sesión en esta ventana.</div>
+          <div className="nempty">Ningún agente activo.</div>
         ) : (
           <div className="ndetail">
             <div className="nhead">
@@ -420,62 +365,20 @@ function Panel({ waiting, working, quiet, reload }: PanelProps) {
                 {[home(sel.projectPath) || sel.projectSlug, sel.gitBranch, shortModel(sel.model)].filter(Boolean).join(" · ")}
               </span>
               <span className="actions">
-                <button className="primary" onClick={() => open(sel)}>
-                  Abrir en {primary?.label ?? "su cliente"} <kbd>⏎</kbd>
-                </button>
-                {alt !== undefined && (
-                  <button onClick={() => open(sel, alt.target)}>
-                    {alt.label} <kbd>⇧⏎</kbd>
-                  </button>
-                )}
                 <button onClick={() => dismiss(sel)}>
                   {sel.dismissed ? "Reabrir" : "Dar por cerrada"} <kbd>x</kbd>
                 </button>
                 <button onClick={() => navigator.clipboard.writeText(sel.id)}>Copiar sessionId</button>
               </span>
             </div>
-            <div className="ntlhead">
-              <span className="nlabel">Timeline · en vivo</span>
-              <span className="toggles">
-                <button className={showPrompts ? "on" : ""} onClick={() => setShowPrompts(!showPrompts)}>
-                  tus mensajes
-                </button>
-                <button className={showTools ? "on" : ""} onClick={() => setShowTools(!showTools)}>
-                  herramientas
-                </button>
-              </span>
-            </div>
-            <div className="ntl">
-              {sel.liveStatus === "waiting_input" && !sel.dismissed && (
-                <div className="nwaitnote">
-                  Esperando tu respuesta desde hace {ago(sel.lastActivity)}. Respondé en {primary?.label ?? "su cliente"} (⏎).
-                </div>
-              )}
-              {[...timeline].reverse().map((e, i) => (
-                <div className={`ev ${e.kind}`} key={i}>
-                  <span className="at">{clock(e.at)}</span>
-                  <span className="mark">
-                    <i />
-                  </span>
-                  <span className="txt">{e.text}</span>
-                </div>
-              ))}
-            </div>
+            <Context s={sel} />
           </div>
         )}
-
-        {sel !== undefined && <Context s={sel} detail={current} />}
       </div>
 
       <div className="nfoot">
         <span>
           <b>↑↓</b> moverse
-        </span>
-        <span>
-          <b>⏎</b> abrir
-        </span>
-        <span>
-          <b>⇧⏎</b> en el otro cliente
         </span>
         <span>
           <b>x</b> dar por cerrada
@@ -514,10 +417,10 @@ function PrBlock({ pr }: { pr: PrStatus }) {
   const mergeTone = pr.state === "MERGED" || pr.merge === "ready" ? "ok" : pr.state === "CLOSED" ? "" : "wait";
   return (
     <div className="nprblock">
-      <span className="npr">
+      <button className="npr" onClick={() => openPullRequest(pr.url)} title={`Abrir ${pr.url}`}>
         <b>#{pr.number}</b>
         <span>{pr.title}</span>
-      </span>
+      </button>
       <span className="npills">
         {pr.checks.length > 0 && (
           <span className={`npill ${ok === pr.checks.length ? "ok" : "wait"}`}>
@@ -536,7 +439,7 @@ function PrBlock({ pr }: { pr: PrStatus }) {
   );
 }
 
-function Context({ s, detail }: { s: Session; detail: DetailResponse | null }) {
+function Context({ s }: { s: Session }) {
   const [statuses, setStatuses] = useState<PrStatus[] | null>(null);
   useEffect(() => {
     let live = true;
@@ -558,9 +461,7 @@ function Context({ s, detail }: { s: Session; detail: DetailResponse | null }) {
     ["Duración", duration(s.startedAt, s.lastActivity)],
     ["Actividad", `hace ${ago(s.lastActivity)}`],
   ];
-  const prs = detail?.prs ?? s.pullRequests;
-  const files = detail?.files ?? [];
-  const rel = (f: string) => (s.projectPath !== null && f.startsWith(s.projectPath + "/") ? f.slice(s.projectPath.length + 1) : f);
+  const prs = s.pullRequests;
   return (
     <div className="ncontext">
       <div className="nsec">
@@ -587,22 +488,12 @@ function Context({ s, detail }: { s: Session; detail: DetailResponse | null }) {
           {prs.map((u) => {
             const m = u.match(/github\.com\/([^/]+\/[^/]+)\/pull\/(\d+)/);
             return (
-              <span className="npr" key={u}>
+              <button className="npr" key={u} onClick={() => openPullRequest(u)} title={`Abrir ${u}`}>
                 <b>#{m?.[2] ?? "?"}</b>
                 <span>{m?.[1] ?? u}</span>
-              </span>
+              </button>
             );
           })}
-        </div>
-      )}
-      {files.length > 0 && (
-        <div className="nsec">
-          <div className="nlabel">Archivos tocados · {files.length}</div>
-          {files.slice(0, 16).map((f) => (
-            <span className="nfile" key={f} title={f}>
-              {rel(f)}
-            </span>
-          ))}
         </div>
       )}
     </div>
