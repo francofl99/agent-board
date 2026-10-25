@@ -7,24 +7,20 @@ import { Settings } from "./Settings";
 import { useTheme } from "./useTheme";
 import { Detail } from "./Detail";
 import { Empty, Fleet, NoMatch, groupSessions } from "./Fleet";
-import { ago } from "./format";
+import { ago, altTarget } from "./format";
+import { Wall, wallOrder } from "./Wall";
 import type { FleetResponse, Session } from "./types";
 
 type GroupBy = "project" | "provider" | "status";
 const GROUP_CYCLE: GroupBy[] = ["project", "provider", "status"];
 
-type View = "fleet" | "board" | "graph" | "settings";
+type View = "fleet" | "wall" | "board" | "graph" | "settings";
 
 type StatusFilter = "waiting_input" | "working";
 const STATUS_FILTERS: { key: StatusFilter; label: string }[] = [
   { key: "waiting_input", label: "Esperando respuesta" },
   { key: "working", label: "En curso" },
 ];
-
-function altTarget(s: Session): string {
-  if (s.provider === "codex") return s.client === "desktop" ? "codex-cli" : "codex-desktop";
-  return s.client === "desktop" ? "claude-cli" : "claude-desktop";
-}
 
 export function App() {
   const [data, setData] = useState<FleetResponse | null>(null);
@@ -36,6 +32,7 @@ export function App() {
   const [view, setView] = usePersisted<View>("view", "fleet");
   const { themes, themesDir, themeId, setThemeId } = useTheme();
   const [selected, setSelected] = useState<string | null>(null);
+  const [wallFocus, setWallFocus] = usePersisted<string | null>("wallFocus", null);
   const [menuOpen, setMenuOpen] = useState(false);
   const filterRef = useRef<HTMLInputElement>(null);
 
@@ -100,6 +97,10 @@ export function App() {
   // Looked up across every session, not just the visible ones: a session that leaves
   // the active filter (it went from waiting to working) must not close the panel.
   const current = sessions.find((s) => s.id === selected) ?? null;
+  const wallOrdered = useMemo(() => wallOrder(visible), [visible]);
+  const staged = sessions.find((s) => s.id === wallFocus) ?? null;
+  const wall = view === "wall";
+  const target = wall ? staged : current;
 
   const open = useCallback(async (s: Session, target?: string) => {
     try {
@@ -143,27 +144,41 @@ export function App() {
       const typing = el.tagName === "INPUT" || el.tagName === "TEXTAREA";
       if (e.key === "Escape") {
         if (typing) el.blur();
-        else if (selected !== null) setSelected(null); // close the panel before clearing filters
+        else if (wall && staged !== null) setWallFocus(null);
+        else if (!wall && selected !== null) setSelected(null); // close the panel before clearing filters
         else setFilter("");
         return;
       }
       if (typing || view === "settings") return;
       const listMode = view === "fleet";
       if (!listMode && (e.key === "j" || e.key === "k" || e.key === "g")) return;
+      if (wall && /^[1-9]$/.test(e.key) && !e.metaKey && !e.ctrlKey) {
+        const s = wallOrdered[Number(e.key) - 1];
+        if (s !== undefined) setWallFocus(s.id);
+        return;
+      }
+      if (wall && (e.key === "[" || e.key === "]") && staged !== null && wallOrdered.length > 0) {
+        const i = wallOrdered.findIndex((s) => s.id === staged.id);
+        const step = e.key === "]" ? 1 : wallOrdered.length - 1;
+        setWallFocus(wallOrdered[(Math.max(i, 0) + step) % wallOrdered.length].id);
+        return;
+      }
       if (e.key === "j" || e.key === "ArrowDown") {
         e.preventDefault();
         move(1);
       } else if (e.key === "k" || e.key === "ArrowUp") {
         e.preventDefault();
         move(-1);
-      } else if (e.key === "Enter" && current !== null) {
+      } else if (e.key === "Enter" && target !== null) {
         e.preventDefault();
-        open(current, e.shiftKey ? altTarget(current) : undefined);
-      } else if (e.key === "x" && current !== null) {
+        open(target, e.shiftKey ? altTarget(target) : undefined);
+      } else if (e.key === "x" && target !== null) {
         e.preventDefault();
-        dismiss(current, !current.dismissed);
+        dismiss(target, !target.dismissed);
       } else if (e.key === "g") {
         setGroupBy(GROUP_CYCLE[(GROUP_CYCLE.indexOf(groupBy) + 1) % GROUP_CYCLE.length]);
+      } else if (e.key === "w" && wall && waiting.length > 0) {
+        setWallFocus(waiting[0].id);
       } else if (e.key === "w" && waiting.length > 0) {
         setSelected(waiting[0].id);
         document.querySelector(`[data-row="${waiting[0].id}"]`)?.scrollIntoView({ block: "center" });
@@ -174,7 +189,10 @@ export function App() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [move, current, open, waiting, dismiss, groupBy, setGroupBy, setFilter, selected, view]);
+  }, [
+    move, target, open, waiting, dismiss, groupBy, setGroupBy, setFilter, selected, view,
+    wall, staged, wallOrdered, setWallFocus,
+  ]);
 
   const moveToGroup = useCallback(
     (s: Session, group: string) => {
@@ -199,7 +217,7 @@ export function App() {
         </div>
         <span className="divider" />
         <div className="modes seg">
-          {([["fleet", "Fleet"], ["board", "Board"], ["graph", "Grafo"]] as const).map(([v, label]) => (
+          {([["fleet", "Fleet"], ["wall", "Muro"], ["board", "Board"], ["graph", "Grafo"]] as const).map(([v, label]) => (
             <button key={v} className={view === v ? "on" : ""} onClick={() => setView(v)}>
               {label}
             </button>
@@ -293,6 +311,13 @@ export function App() {
           </>
         )}
 
+        {wall && (
+          <>
+            <span className="divider" />
+            <span className="label">{staged !== null ? "Escenario" : "Muro"}</span>
+          </>
+        )}
+
         <span style={{ flex: 1 }} />
 
         <div className={`search${filter !== "" ? " active" : ""}`}>
@@ -319,7 +344,17 @@ export function App() {
         </span>
       </div>
 
-      <div className="body">
+      <div className={`body${wall ? " wallmode" : ""}`}>
+        {wall && data !== null && (visible.length > 0 || staged !== null) ? (
+          <Wall
+            ordered={wallOrdered}
+            current={staged}
+            scannedAt={data.scannedAt}
+            onFocus={setWallFocus}
+            onOpen={open}
+            onDismiss={dismiss}
+          />
+        ) : (
         <div className="list">
           {data !== null && sessions.length === 0 ? (
             <Empty paths={data.paths} scannedAt={data.scannedAt} />
@@ -351,7 +386,8 @@ export function App() {
             />
           )}
         </div>
-        {current !== null && (
+        )}
+        {!wall && current !== null && (
           <Detail
             session={current}
             groups={data?.groups ?? []}
@@ -364,7 +400,17 @@ export function App() {
       </div>
 
       <div className="help">
-        {view === "fleet" ? (
+        {wall ? (
+          <>
+            <span><b>1–9</b> traer al escenario</span>
+            <span><b>w</b> la que más espera</span>
+            <span><b>[ ]</b> anterior / siguiente</span>
+            <span><b>⏎</b> abrir en su cliente</span>
+            <span><b>⇧⏎</b> en el otro cliente</span>
+            <span><b>x</b> dar por cerrada</span>
+            <span><b>Esc</b> volver al muro</span>
+          </>
+        ) : view === "fleet" ? (
           <>
             <span><b>j/k</b> mover</span>
             <span><b>⏎</b> abrir</span>
