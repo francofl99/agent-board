@@ -9,7 +9,7 @@ const SHORTCUTS: [string, string][] = [
   ["Dar por cerrada", "x"],
   ["Buscar", "/"],
   ["Limpiar la búsqueda / volver", "Esc"],
-  ["Mostrar el panel del notch", "⌘⇧A"],
+  ["Desplegar el riel lateral", "⌘⇧A"],
 ];
 
 interface Props {

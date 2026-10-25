@@ -113,15 +113,12 @@ interface Props {
   data: FleetResponse | null;
   error: string;
   onDismiss: (s: Session, dismissed: boolean) => void;
-  // The web page also reaches Ajustes; the notch panel folds away on Esc.
-  variant: "page" | "panel";
-  onSettings?: () => void;
-  onClose?: () => void;
+  onSettings: () => void;
 }
 
-// The one list of sessions, shared by the full-screen app and the panel the notch drops:
-// who waits on you and who is working, each row opening onto its last moves.
-export function List({ data, error, onDismiss, variant, onSettings, onClose }: Props) {
+// The one list of sessions: who waits on you and who is working, each row opening onto
+// its last moves.
+export function List({ data, error, onDismiss, onSettings }: Props) {
   const [filter, setFilter] = useState("");
   const [selId, setSelId] = useState<string | null>(null);
   const [opened, setOpened] = useState<Record<string, boolean>>({});
@@ -147,8 +144,7 @@ export function List({ data, error, onDismiss, variant, onSettings, onClose }: P
       const typing = (e.target as HTMLElement).tagName === "INPUT";
       if (e.key === "Escape") {
         if (typing) search.current?.blur();
-        else if (filter !== "") setFilter("");
-        else onClose?.();
+        else setFilter("");
         return;
       }
       if (typing) return;
@@ -176,7 +172,7 @@ export function List({ data, error, onDismiss, variant, onSettings, onClose }: P
   ];
 
   return (
-    <div className={`list ${variant}`}>
+    <div className="list">
       <div className="lhead">
         <b className="lbrand">Agent Board</b>
         <span className="lcount wait">
@@ -200,19 +196,17 @@ export function List({ data, error, onDismiss, variant, onSettings, onClose }: P
           <i className={stale || error !== "" ? "stale" : ""} />
           {data === null ? "escaneando…" : `hace ${ago(data.scannedAt)}`}
         </span>
-        {onSettings !== undefined && (
-          <button className="lgear" onClick={onSettings} title="Ajustes">
-            <svg width="15" height="15" viewBox="0 0 24 24" aria-hidden="true">
-              <circle cx="12" cy="12" r="3.2" fill="none" stroke="currentColor" strokeWidth="2" />
-              <path
-                d="M12 2.8v2.6M12 18.6v2.6M21.2 12h-2.6M5.4 12H2.8M18.5 5.5l-1.8 1.8M7.3 16.7l-1.8 1.8M18.5 18.5l-1.8-1.8M7.3 7.3 5.5 5.5"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-              />
-            </svg>
-          </button>
-        )}
+        <button className="lgear" onClick={onSettings} title="Ajustes">
+          <svg width="15" height="15" viewBox="0 0 24 24" aria-hidden="true">
+            <circle cx="12" cy="12" r="3.2" fill="none" stroke="currentColor" strokeWidth="2" />
+            <path
+              d="M12 2.8v2.6M12 18.6v2.6M21.2 12h-2.6M5.4 12H2.8M18.5 5.5l-1.8 1.8M7.3 16.7l-1.8 1.8M18.5 18.5l-1.8-1.8M7.3 7.3 5.5 5.5"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+            />
+          </svg>
+        </button>
       </div>
 
       <div className="lscroll">
@@ -278,12 +272,7 @@ export function List({ data, error, onDismiss, variant, onSettings, onClose }: P
         <span>
           <b>/</b> buscar
         </span>
-        {variant === "panel" && (
-          <span>
-            <b>Esc</b> ocultar
-          </span>
-        )}
-        <span className="lnote right">{variant === "panel" ? "⌘⇧A desde cualquier app" : ""}</span>
+        <span className="lnote" />
       </div>
     </div>
   );
