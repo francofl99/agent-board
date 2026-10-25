@@ -4,11 +4,10 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { loadAppConfig, saveAppConfig } from "./config.js";
 import { scanFleet } from "./fleet.js";
-import { defaultTarget, openPullRequest, openSession, optionsFor, revealFile, type OpenTarget } from "./open.js";
+import { defaultTarget, openSession, optionsFor, revealFile, type OpenTarget } from "./open.js";
 import { readTranscript } from "./timeline.js";
 import { addGroup, knownGroups, saveUserData } from "./store.js";
 import { loadThemes, THEMES_DIR } from "./themes.js";
-import { prStatus } from "./prs.js";
 import type { ScanResult } from "./fleet.js";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -120,17 +119,6 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
     return;
   }
 
-  if (p === "/api/open-pr" && req.method === "POST") {
-    const body = await readBody(req);
-    try {
-      await openPullRequest(typeof body.url === "string" ? body.url : "");
-      json(res, 200, { ok: true });
-    } catch (e) {
-      json(res, 400, { ok: false, error: (e as Error).message });
-    }
-    return;
-  }
-
   if (p === "/api/settings") {
     if (req.method === "GET") {
       json(res, 200, await loadAppConfig());
@@ -191,14 +179,6 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
       } catch (e) {
         json(res, 500, { ok: false, error: (e as Error).message });
       }
-      return;
-    }
-
-    // Most recent last in the transcript; the panel only has room for a few.
-    if (action === "/prs" && req.method === "GET") {
-      const urls = [...new Set(s.pullRequests)].slice(-3).reverse();
-      const statuses = await Promise.all(urls.map(prStatus));
-      json(res, 200, { prs: statuses.filter((x) => x !== null) });
       return;
     }
 

@@ -21,11 +21,7 @@ by the sync.
   - `idle` — stale / abandoned mid-turn / no activity.
 - **Two axes, not one** — provider (Claude / Codex) and client (CLI / desktop) are
   tracked and badged separately.
-- **Open where it lives** — one keystroke resumes a session in its own client, or in
-  the other client of the same provider.
 - **Cost per session** — tokens in/out plus cache reads and writes, priced per model.
-- **Your columns survive the refresh** — group and notes live in `~/.agent-board`,
-  never derived, never overwritten.
 - **Zero-setup Notion database** — created automatically on first run; you only provide a token.
 - **Diff-based, rate-limit-friendly** — only changed rows are patched.
 - **Filters** — sync a subset by provider, recency, or activity to stay within Notion's
@@ -42,7 +38,7 @@ by the sync.
 ~/.codex/session_index.jsonl
         │  parser + status derivation + pricing
         ▼
-   local API (127.0.0.1:4319)  ──►  web UI  (Fleet + session detail)
+   local API (127.0.0.1:4319)  ──►  web UI and desktop notch (one session list)
         │
         └── sync (diff-based upsert)  ──►  Notion database   [optional export]
 ```
@@ -68,87 +64,38 @@ npm run dev
 The server binds to loopback only — it reads every local transcript, so it must not
 be reachable from the network. There is no login, no cloud, no telemetry.
 
-### View modes
+### The list
 
-The same live sessions, three ways — `Fleet`, `Board` and `Grafo`, next to the logo in
-the title bar. The right side holds only the scan indicator and an account menu (this
-app has no account: everything stays on your machine) that opens Ajustes.
-The detail panel is shared: selecting a row, a card or a node opens the same thing,
-and so are the filters — state chips and the `/` text filter carry across the three
-modes, so narrowing in Fleet and switching to Board keeps the same set. Grouping is
-the exception: it only means something in Fleet (Board groups by your column, Grafo
-by project), so that control shows there alone.
+One view, the same in the browser and in the panel the desktop notch drops. The bar on
+top counts who waits on you (with the longest wait) and who is working, and holds the
+search, the scan indicator and Ajustes. Below, only the live sessions, in two groups:
 
-### Fleet
+- **Te esperan** — sessions that finished their turn, longest wait first, each with the
+  first line of what the agent last said.
+- **Trabajando** — sessions mid-turn, with their running sub-agents or last move.
 
-One dense row per session: status dot, provider mark (a radial burst for Claude, a
-six-lobed knot for Codex — drawn as inline SVG, tinted per provider, so the two are
-told apart by shape as well as colour), client badge (`CLI` / `APP`), name, project · branch, model, messages, tokens, estimated cost and
-last activity. The name is the session's own title ("Umbral de usuarios Ably
-conectados"), not the slug the CLI derives from the cwd — that one is a process
-handle and shows in the detail panel next to the pid, unless you renamed the session
-yourself, in which case your name wins. Provider and client are two axes, not one: a Claude session started
-from the terminal and one started from the desktop app are both Claude.
+Idle, ended and closed sessions stay out of the list.
 
-The two states that mean something is happening carry their own colour everywhere —
-row, board card, graph node and the detail header: amber for `waiting_input`, green for
-`working`. Idle, ended and sessions you closed stay grey and quiet. There is no banner:
-the colour, the `Esperando respuesta` count and `w` (jump to the first one) are enough
-without a bar taking a strip of the window all day.
+Each row shows the provider, the name, that hint, project · branch and how long ago.
+`Espacio` (or a click) unfolds it: the last few things the agent said or ran, with the
+model and estimated cost beside them.
 
-Filter by state (`Todas` / `Esperando respuesta` / `En curso`, combinable, each with
-its own count), group by project, provider or status, and text-filter with `/`.
-The table sizes itself against its own width (container queries), not the window's,
-because the detail panel takes a third of it: columns drop in reverse order of
-usefulness — tokens, then messages, model, project — and the session name and what it
-is waiting on are the last to go. Under 1080px the panel stops holding its full width;
-under 760px it slides over the list as a drawer that `Esc` (or `✕`) closes.
-
-Filters, grouping and density persist in `localStorage` and survive a reload; they
-are UI preferences, so they stay in the browser rather than in `~/.agent-board`.
-
-| Key | Action |
+| Key | Does |
 |---|---|
-| `j` / `k` | move selection |
-| `⏎` | open in the client the session belongs to |
-| `⇧⏎` | open in the *other* client of the same provider |
-| `x` | close a session you consider done (or reopen it) |
-| `w` | jump to the first session waiting on you |
-| `g` | cycle grouping |
-| `/` | filter |
-
-### Board
-
-Your own columns, sourced from the `Grupo` field — the one the refresh never touches.
-Drag a card to move it; `Sin grupo` holds everything you haven't filed yet, and
-`Nueva columna` adds an empty one (stored in `~/.agent-board/groups.json`, so a column
-survives having no cards). The derived status stays visible on every card: the app
-computes the status, you decide the column.
-
-### Grafo
-
-Project → session → what the session is waiting on **right now**, drawn with elbow
-connectors, collapsible. The third level holds live hand-offs
-only, both read from the transcript: **sub-agents** (`Agent`/`Task`, named by
-`subagent_type`, solid diamond) and **background tasks** (`Bash` with
-`run_in_background`, named by the step's description, hollow diamond), each pulsing
-with how long it has been running.
-
-A hand-off is live from its `tool_use` until it reports back — the `tool_result` for a
-foreground one, the `task-notification` carrying its `tool-use-id` for a backgrounded
-one — so finished work disappears from the graph on the next refresh. The clock is the
-transcript's, not the OS's: a background task clears when its notification is written,
-which is when the agent picks the event up — a few seconds after the process actually
-exited if the agent was busy. A session with no
-live process shows nothing: a transcript abandoned mid-task would otherwise leave a
-ghost running forever. Codex rollouts have no equivalent, so those sessions are leaves.
+| `↑` `↓` | move the selection |
+| `Espacio` | unfold / fold the selected session |
+| `x` | close the session: it leaves the list until it moves again |
+| `/` | search by name, project, branch or model |
+| `Esc` | clear the search; in the notch panel, fold it away |
 
 ### Themes
 
 Every colour and both font families come from CSS custom properties, so a theme is a
-bag of tokens. Three ship built in — **Grafito** (neutral, amber accent), **Carbón**
-(warm black, violet accent, amber left to alerts) and **Hielo** (desaturated blue-grey)
-— and `Ajustes` picks between them; the choice lives in `localStorage`.
+bag of tokens. Four ship built in — **Grafito** (neutral, amber accent), **Carbón**
+(warm black, violet accent, amber left to alerts), **Hielo** (desaturated blue-grey)
+and **Papel** (light) — plus **Automático**, which follows the macOS appearance:
+Grafito in dark mode, Papel in light. `Ajustes` picks between them, and the choice lives
+in `~/.agent-board/app.json` so the browser and the desktop shell share it.
 
 Drop a JSON file in `~/.agent-board/themes/` and it shows up in the picker next to the
 built-ins. It starts from Grafito, so a file only needs the tokens it changes:
@@ -173,32 +120,13 @@ anything else into it.
 ### Closing a session you're done with
 
 A session can sit in `waiting_input` forever because you already moved on. `x` — or
-the `✓` button that appears on the row — marks it closed: the row dims, the amber goes
-away, and it stops counting in the banner and in the `Esperando respuesta` filter.
+`Dar por cerrada` in the unfolded row — marks it closed: it leaves the list and stops
+counting as waiting on you.
 
 The flag is a timestamp of the session's last activity, not a boolean, so it clears
 itself: the moment that transcript grows again the session comes back on its own as
 `working`, then `waiting_input` when the agent finishes its turn. Nothing to remember
 to undo.
-
-### Session detail
-
-Timeline shows the conversation, newest first, — your prompts and the agent's replies — with the
-harness noise stripped out: injected skill bodies, hook output, slash-command
-wrappers, compaction summaries and tool results never appear as turns. Tool calls are
-hidden behind a `herramientas` toggle, off by default.
-
-Below it: PRs found in the transcript, files the agent touched (relative to the
-session's cwd), your group chips and your notes.
-
-### Opening a session
-
-| Session | What runs |
-|---|---|
-| Claude CLI | `claude --resume <id>` in a Terminal window at the session's cwd |
-| Claude desktop | `claude://resume?session=<id>&folder=<cwd>` |
-| Codex CLI | `codex resume <id>` in a Terminal window at the session's cwd |
-| Codex desktop | `codex://threads/<id>` |
 
 ### Status
 
@@ -232,9 +160,13 @@ rates in `~/.agent-board/pricing.json`.
 A strip pinned to the right edge of the screen that stays on top of whatever you are
 using, full-screen apps included. Collapsed it shows how many sessions wait on you,
 how many are working, and one dot per live session; hover it and it widens into the
-list — waiting first, with what each one asked or is running. Click a row to open the
-session in its client. The menu bar shows the same counters (`⏳2 ⚙︎3`) and a menu to
-hide the rail or quit.
+list — waiting first, with what each one asked or is running. The menu bar shows the
+same counters (`⏳2 ⚙︎3`) and a menu to move or hide the rail, or quit.
+
+Docked into the **notch** instead, it uses the black strip a full-screen app leaves
+around the camera: waiting sessions as chips on the left, working ones on the right,
+rotating as a carousel when they don't fit. On a regular desktop it shows nothing.
+Hovering the notch or `⌘⇧A` from any app drops the list as a 960px panel.
 
 It is a [Tauri](https://tauri.app) shell around the `?rail` view of the web UI, so it
 needs the API running (`npm start`) and Rust installed:

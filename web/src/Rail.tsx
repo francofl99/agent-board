@@ -4,10 +4,9 @@ import { ago, statusClass } from "./format";
 import { Notch } from "./Notch";
 import { tauri, type EdgeState } from "./shell";
 import { useTheme } from "./useTheme";
-import { lastAgentText, runningSummary, wallOrder } from "./Wall";
+import { groupByStatus, lastAgentText, runningSummary } from "./sessions";
 import type { FleetResponse, Session } from "./types";
 
-const isLive = (s: Session) => !s.dismissed && (s.liveStatus === "waiting_input" || s.liveStatus === "working");
 
 function trayTitle(waiting: number, working: number): string {
   if (waiting === 0 && working === 0) return "AB";
@@ -111,9 +110,8 @@ export function Rail() {
     tauri.core.invoke("rail_drag");
   };
 
-  const live = wallOrder((data?.sessions ?? []).filter(isLive));
-  const waiting = live.filter((s) => s.liveStatus === "waiting_input");
-  const working = live.filter((s) => s.liveStatus === "working");
+  const { waiting, working } = groupByStatus(data?.sessions ?? []);
+  const live = [...waiting, ...working];
 
   useEffect(() => {
     tauri?.core.invoke("set_tray_title", { title: trayTitle(waiting.length, working.length) });
