@@ -293,6 +293,13 @@ html.edge-notch body { overflow: hidden; }
   border: none; border-radius: 50%; background: none; color: var(--dim2); cursor: pointer;
 }
 .lgear:hover { background: var(--bg2); color: var(--txt); }
+.lbyproj {
+  display: flex; align-items: center; gap: 6px; flex: none; height: 28px; padding: 0 12px;
+  border: 1px solid var(--line); border-radius: 14px; background: none; color: var(--dim2);
+  font: inherit; font-size: 12px; white-space: nowrap; cursor: pointer;
+}
+.lbyproj:hover { color: var(--txt); }
+.lbyproj.on { border-color: var(--line2); background: var(--bg2); color: var(--txt); }
 
 .lscroll { flex: 1; min-height: 0; overflow-y: auto; }
 .lcontent {
@@ -306,6 +313,9 @@ html.edge-notch body { overflow: hidden; }
 .lgrouphead.work .nm { color: var(--ok-ink); }
 .lgrouphead .n { color: var(--ended); }
 .lgrouphead .rule { flex: 1; height: 1px; background: var(--line); }
+.lgrouphead.proj .lproj { font-size: 13px; font-weight: 600; }
+.lgrouphead.proj .n.wait { color: var(--wait-ink); }
+.lgrouphead.proj .n.work { color: var(--ok-ink); }
 
 .lrow {
   display: flex; flex-direction: column; overflow: hidden; border-radius: 22px;
@@ -339,7 +349,10 @@ html.edge-notch body { overflow: hidden; }
 .lhint { font-size: 13.5px; color: var(--dim2); }
 .lrow.wait .lhint { color: var(--wait-ink); }
 .lrow.work .lhint { color: var(--ok-ink); }
-.lwhere { font-family: var(--mono); font-size: 11.5px; color: var(--dim2); }
+.lwhere { display: flex; align-items: center; gap: 10px; font-family: var(--mono); font-size: 11.5px; color: var(--dim2); }
+.lproj { display: flex; align-items: center; gap: 6px; min-width: 0; flex: none; max-width: 65%; color: var(--txt); font-weight: 500; }
+.lproj i { width: 7px; height: 7px; flex: none; border-radius: 2px; background: oklch(0.72 0.14 var(--h)); }
+.lproj span, .lbranch { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ltime { font-family: var(--mono); font-size: 13px; font-weight: 600; text-align: right; color: var(--dim2); }
 .lrow.wait .ltime { color: var(--wait-ink); }
 .lrow.work .ltime { color: var(--ok-ink); }
@@ -384,7 +397,7 @@ html.edge-notch body { overflow: hidden; }
 }
 @media (max-width: 600px) {
   .lhead { gap: 12px; padding: 0 12px; }
-  .lbrand, .lcount span, .lscan { display: none; }
+  .lbrand, .lcount span, .lscan, .lbyproj span { display: none; }
   .lline { grid-template-columns: 22px 28px minmax(0, 1fr) 56px; }
   .lhint { display: none; }
   .lfoot span:not(.lnote) { display: none; }
