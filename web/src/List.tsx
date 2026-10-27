@@ -1,11 +1,46 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { type CSSProperties, useEffect, useMemo, useRef, useState } from "react";
 import { getDetail } from "./api";
-import { ago, clock, projectName, shortModel, usd } from "./format";
+import { ago, clock, shortModel, usd } from "./format";
 import { ProviderIcon } from "./ProviderIcon";
-import { firstLine, groupByStatus, lastAgentText, plain, runningSummary } from "./sessions";
+import {
+  firstLine,
+  groupByProject,
+  groupByStatus,
+  lastAgentText,
+  plain,
+  projectHue,
+  projectOf,
+  runningSummary,
+} from "./sessions";
 import type { FleetResponse, Session, TimelineEvent } from "./types";
 
 const TAIL = 3;
+const BY_PROJECT = "agent-board.byProject";
+
+function readByProject(): boolean {
+  try {
+    return localStorage.getItem(BY_PROJECT) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function saveByProject(on: boolean) {
+  try {
+    localStorage.setItem(BY_PROJECT, on ? "1" : "0");
+  } catch {
+    // Private windows may refuse storage; the toggle still works for this visit.
+  }
+}
+
+function Project({ name }: { name: string }) {
+  return (
+    <span className="lproj" style={{ "--h": projectHue(name) } as CSSProperties}>
+      <i />
+      <span>{name}</span>
+    </span>
+  );
+}
 
 type Kind = "wait" | "work";
 
@@ -61,11 +96,12 @@ interface RowProps {
   n: number;
   selected: boolean;
   open: boolean;
+  byProject: boolean;
   onToggle: () => void;
   onDismiss: () => void;
 }
 
-function Row({ s, n, selected, open, onToggle, onDismiss }: RowProps) {
+function Row({ s, n, selected, open, byProject, onToggle, onDismiss }: RowProps) {
   const kind = kindOf(s);
   return (
     <div className={`lrow ${kind}${selected ? " sel" : ""}${open ? " open" : ""}`} data-row={s.id}>
@@ -89,7 +125,10 @@ function Row({ s, n, selected, open, onToggle, onDismiss }: RowProps) {
           <span className="nm">{s.name}</span>
         </span>
         <span className="lhint">{hint(s, kind)}</span>
-        <span className="lwhere">{[projectName(s.projectPath, s.projectSlug), s.gitBranch].filter(Boolean).join(" · ")}</span>
+        <span className="lwhere">
+          {!byProject && <Project name={projectOf(s)} />}
+          {s.gitBranch && <span className="lbranch">{s.gitBranch}</span>}
+        </span>
         <span className="ltime">{ago(s.lastActivity)}</span>
       </div>
       {open && (
@@ -122,6 +161,7 @@ export function List({ data, error, onDismiss, onSettings }: Props) {
   const [filter, setFilter] = useState("");
   const [selId, setSelId] = useState<string | null>(null);
   const [opened, setOpened] = useState<Record<string, boolean>>({});
+  const [byProject, setByProject] = useState(readByProject);
   const search = useRef<HTMLInputElement>(null);
 
   const sessions = data?.sessions ?? [];
@@ -130,9 +170,18 @@ export function List({ data, error, onDismiss, onSettings }: Props) {
     const q = filter.trim().toLowerCase();
     return q === "" ? all : groupByStatus(sessions.filter((s) => matches(s, q)));
   }, [all, sessions, filter]);
+  const projects = useMemo(() => (byProject ? groupByProject(shown) : []), [byProject, shown]);
   // Only live sessions: closing one with x takes it off the list until it moves again.
-  const flat = [...shown.waiting, ...shown.working];
+  const flat = byProject
+    ? projects.flatMap((p) => [...p.waiting, ...p.working])
+    : [...shown.waiting, ...shown.working];
   const sel = flat.find((s) => s.id === selId) ?? flat[0];
+
+  const toggleByProject = () =>
+    setByProject((on) => {
+      saveByProject(!on);
+      return !on;
+    });
 
   const toggle = (id: string) => {
     setSelId(id);
@@ -158,6 +207,7 @@ export function List({ data, error, onDismiss, onSettings }: Props) {
       } else if (e.key === " " && sel !== undefined) toggle(sel.id);
       else if (e.key === "x" && sel !== undefined) onDismiss(sel, true);
       else if (e.key === "/") search.current?.focus();
+      else if (e.key === "p") toggleByProject();
       else return;
       e.preventDefault();
     };
@@ -170,6 +220,18 @@ export function List({ data, error, onDismiss, onSettings }: Props) {
     ["Te esperan", "wait", shown.waiting],
     ["Trabajando", "work", shown.working],
   ];
+  const row = (s: Session) => (
+    <Row
+      key={s.id}
+      s={s}
+      n={flat.indexOf(s) + 1}
+      selected={s.id === sel?.id}
+      open={opened[s.id] === true}
+      byProject={byProject}
+      onToggle={() => toggle(s.id)}
+      onDismiss={() => onDismiss(s, true)}
+    />
+  );
 
   return (
     <div className="list">
@@ -192,6 +254,23 @@ export function List({ data, error, onDismiss, onSettings }: Props) {
           <input ref={search} value={filter} placeholder="Buscar" onChange={(e) => setFilter(e.target.value)} />
           <kbd>/</kbd>
         </label>
+        <button
+          className={`lbyproj${byProject ? " on" : ""}`}
+          onClick={toggleByProject}
+          aria-pressed={byProject}
+          title="Agrupar por proyecto (p)"
+        >
+          <svg width="13" height="13" viewBox="0 0 24 24" aria-hidden="true">
+            <path
+              d="M3 6.5A1.5 1.5 0 0 1 4.5 5h4.2l2 2.2h8.8A1.5 1.5 0 0 1 21 8.7v9.8a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 18.5z"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinejoin="round"
+            />
+          </svg>
+          <span>Por proyecto</span>
+        </button>
         <span className="lscan mono" title={data === null ? "" : `último escaneo ${data.scannedAt}`}>
           <i className={stale || error !== "" ? "stale" : ""} />
           {data === null ? "escaneando…" : `hace ${ago(data.scannedAt)}`}
@@ -231,6 +310,19 @@ export function List({ data, error, onDismiss, onSettings }: Props) {
               <b>{data === null ? "Escaneando…" : "Ningún agente activo"}</b>
               {data !== null && <span>Cuando una sesión trabaje o te espere, aparece acá.</span>}
             </div>
+          ) : byProject ? (
+            projects.map((p) => (
+              <section className="lgroup" key={p.name}>
+                <div className="lgrouphead proj">
+                  <Project name={p.name} />
+                  {p.waiting.length > 0 && <span className="n wait">{p.waiting.length} te esperan</span>}
+                  {p.working.length > 0 && <span className="n work">{p.working.length} trabajando</span>}
+                  <span className="rule" />
+                </div>
+                {p.waiting.map(row)}
+                {p.working.map(row)}
+              </section>
+            ))
           ) : (
             groups
               .filter(([, , rows]) => rows.length > 0)
@@ -241,17 +333,7 @@ export function List({ data, error, onDismiss, onSettings }: Props) {
                     <span className="n">{rows.length}</span>
                     <span className="rule" />
                   </div>
-                  {rows.map((s) => (
-                    <Row
-                      key={s.id}
-                      s={s}
-                      n={flat.indexOf(s) + 1}
-                      selected={s.id === sel?.id}
-                      open={opened[s.id] === true}
-                      onToggle={() => toggle(s.id)}
-                      onDismiss={() => onDismiss(s, true)}
-                    />
-                  ))}
+                  {rows.map(row)}
                 </section>
               ))
           )}
@@ -271,6 +353,9 @@ export function List({ data, error, onDismiss, onSettings }: Props) {
         </span>
         <span>
           <b>/</b> buscar
+        </span>
+        <span>
+          <b>p</b> agrupar por proyecto
         </span>
         <span className="lnote" />
       </div>
