@@ -178,6 +178,9 @@ npm install
 npm run build   # → src-tauri/target/release/bundle/macos/Agent Board Rail.app
 ```
 
+Once built, `npm start` opens the rail along with the API, so whatever starts the
+environment (a launcher, a reboot) brings the notch back too.
+
 macOS has no API to reserve screen space the way the Dock does, so the rail floats
 over the window behind it; it stays 44px wide until hovered. `http://127.0.0.1:4319/?rail`
 renders the same view in a browser.
