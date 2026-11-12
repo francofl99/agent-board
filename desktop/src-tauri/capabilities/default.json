@@ -1,5 +1,5 @@
 {
   "identifier": "default",
-  "windows": ["rail"],
+  "windows": ["rail", "note"],
   "permissions": ["core:default"]
 }

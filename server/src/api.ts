@@ -6,6 +6,7 @@ import { loadAppConfig, saveAppConfig } from "./config.js";
 import { scanFleet } from "./fleet.js";
 import { defaultTarget, openSession, optionsFor, revealFile, type OpenTarget } from "./open.js";
 import { inboxView, saveDecision, type InboxStatus } from "./inbox.js";
+import { addNote, loadNotes } from "./notes.js";
 import { readTranscript } from "./timeline.js";
 import { addGroup, knownGroups, saveUserData } from "./store.js";
 import { loadThemes, THEMES_DIR } from "./themes.js";
@@ -127,6 +128,19 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
     }
     if (req.method === "PATCH") {
       json(res, 200, await saveAppConfig(await readBody(req)));
+      return;
+    }
+  }
+
+  if (p === "/api/notes") {
+    if (req.method === "GET") {
+      json(res, 200, await loadNotes());
+      return;
+    }
+    if (req.method === "POST") {
+      const note = await addNote(await readBody(req));
+      if (note === null) json(res, 400, { error: "text or url required" });
+      else json(res, 201, note);
       return;
     }
   }

@@ -31,3 +31,6 @@ export const saveUser = (id: string, patch: { group?: string; notes?: string; di
 export const getInbox = () => req<InboxResponse>("/api/inbox");
 export const saveDecision = (id: string, patch: { status?: InboxStatus; approve?: boolean; text?: string }) =>
   req<unknown>(`/api/inbox/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(patch) });
+
+export const addNote = (note: { text: string; url: string; remindAt: string }) =>
+  req<unknown>("/api/notes", { method: "POST", body: JSON.stringify(note) });

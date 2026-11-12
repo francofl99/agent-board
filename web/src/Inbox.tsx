@@ -29,6 +29,13 @@ const SECTIONS: { key: InboxSource; label: string; empty: string }[] = [
 
 const STATUS_TAG: Partial<Record<InboxStatus, string>> = { snoozed: "pospuesto", dismissed: "descartado" };
 
+function remindTag(i: InboxItem): string | undefined {
+  if (!i.pinned || i.remindAt === "" || Date.parse(i.remindAt) <= Date.now()) return undefined;
+  const at = new Date(i.remindAt);
+  const day = at.toDateString() === new Date().toDateString() ? "hoy" : "mañana";
+  return `recordar ${day} ${at.toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" })}`;
+}
+
 const resolved = (i: InboxItem) => i.status !== "pending" || i.executed !== null;
 const hot = (i: InboxItem) => !resolved(i) && (i.priority === "red" || i.priority === "orange");
 const matches = (i: InboxItem, q: string) =>
@@ -48,7 +55,7 @@ function Row({ item, selected, open, draft, onToggle, onDraft, onDecide }: RowPr
   const done = item.status === "done";
   const tag = item.executed !== null ? `ejecutada · ${item.executed.result}` : STATUS_TAG[item.status];
   const text = draft ?? (item.approved ? item.approvedText : item.action?.text ?? "");
-  const cls = ["irow", item.source, hot(item) ? "hot" : "", resolved(item) ? "resolved" : "", selected ? "sel" : ""];
+  const cls = ["irow", item.source === "note" ? "pinsrc" : item.source, hot(item) ? "hot" : "", resolved(item) ? "resolved" : "", selected ? "sel" : ""];
   return (
     <article className={cls.filter(Boolean).join(" ")} data-row={item.id}>
       <div className="iline">
@@ -73,6 +80,7 @@ function Row({ item, selected, open, draft, onToggle, onDraft, onDecide }: RowPr
           <span className="ihint">{item.hint}</span>
         </button>
         {item.approved && <span className="itag ok">aprobada · próxima corrida</span>}
+        {remindTag(item) !== undefined && <span className="itag">{remindTag(item)}</span>}
         {tag !== undefined && <span className="itag">{tag}</span>}
         <span className="iwhere">{item.where}</span>
         <span className="iwho">{item.who}</span>
@@ -81,6 +89,12 @@ function Row({ item, selected, open, draft, onToggle, onDraft, onDecide }: RowPr
       {open && (
         <div className="ibody">
           <div className="icol">
+            {item.pinned && item.noteText !== "" && item.noteText !== item.title && (
+              <div>
+                <h4>Tu nota</h4>
+                <p>{item.noteText}</p>
+              </div>
+            )}
             {item.summary !== "" && (
               <div>
                 <h4>Resumen</h4>
@@ -189,12 +203,13 @@ export function Inbox({ data, error, tabs, onDecide, onSettings, active = true, 
     return items.filter((i) => (filter === "all" || i.source === filter) && (q === "" || matches(i, q)));
   }, [items, filter, query]);
 
-  const now = visible.filter((i) => i.now && !resolved(i));
+  const pinned = visible.filter((i) => i.pinned && !resolved(i));
+  const now = visible.filter((i) => i.now && !i.pinned && !resolved(i));
   const sections = SECTIONS.filter((s) => filter === "all" || s.key === filter)
-    .map((s) => ({ ...s, rows: visible.filter((i) => i.source === s.key && !i.now && !resolved(i)) }))
+    .map((s) => ({ ...s, rows: visible.filter((i) => i.source === s.key && !i.now && !i.pinned && !resolved(i)) }))
     .filter((s) => s.rows.length > 0 || (s.key !== "alert" && filter === s.key) || (filter === "all" && s.key !== "alert"));
   const done = visible.filter(resolved);
-  const flat = [...now, ...sections.flatMap((s) => s.rows), ...done];
+  const flat = [...pinned, ...now, ...sections.flatMap((s) => s.rows), ...done];
   const sel = flat.find((i) => i.id === selId) ?? flat[0];
 
   const toggle = (id: string) => {
@@ -340,6 +355,18 @@ export function Inbox({ data, error, tabs, onDecide, onSettings, active = true, 
                   Fuentes caídas en la última corrida:{" "}
                   {report!.sourcesDown.map((s) => `${s.source} (${s.error})`).join(" · ")}
                 </div>
+              )}
+
+              {pinned.length > 0 && (
+                <section className="lgroup">
+                  <div className="igrouphead now">
+                    <SourceIcon source="pin" />
+                    <span className="nm">Anotados</span>
+                    <span className="n">{pinned.length}</span>
+                    <span className="rule" />
+                  </div>
+                  {pinned.map(row)}
+                </section>
               )}
 
               {now.length > 0 && (

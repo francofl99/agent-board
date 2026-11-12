@@ -7,12 +7,17 @@ use std::time::{Duration, Instant};
 use serde::{Deserialize, Serialize};
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::TrayIconBuilder;
-use tauri::{AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, Monitor, State, WebviewWindow, WindowEvent};
+use tauri::{
+    AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, Monitor, State, WebviewUrl,
+    WebviewWindow, WebviewWindowBuilder, WindowEvent,
+};
 use tauri_plugin_global_shortcut::{Code, Modifiers, Shortcut, ShortcutState};
 
 const COLLAPSED: f64 = 44.0;
 const EXPANDED: f64 = 320.0;
 const TRAY: &str = "rail";
+const NOTE: &str = "note";
+const NOTE_SIZE: (f64, f64) = (680.0, 190.0);
 // Grace period before folding back, so brushing past the edge doesn't flicker it.
 const LINGER: Duration = Duration::from_millis(400);
 // macOS moves windows around when displays sleep or are rearranged; re-pinning this
@@ -482,16 +487,6 @@ fn toggle_notch(app: &AppHandle, win: &WebviewWindow) {
     place(app, win, p);
 }
 
-fn toggle_from_keyboard(app: &AppHandle) {
-    let Some(win) = app.get_webview_window("rail") else { return };
-    let r = app.state::<Mutex<Rail>>().lock().unwrap().clone();
-    if r.shown == Edge::Notch {
-        return;
-    }
-    let expanded = r.expanded;
-    set_expanded(app, &win, !expanded, true);
-}
-
 // Polled instead of DOM hover: the webview of a window that isn't key doesn't get
 // reliable mouse-enter events, and the rail is never meant to take focus.
 fn watch_hover(app: AppHandle) {
@@ -609,7 +604,104 @@ fn make_panel(win: &WebviewWindow) {
     ns.setHidesOnDeactivate(false);
     ns.setCollectionBehavior(B::CanJoinAllSpaces | B::FullScreenAuxiliary | B::Stationary | B::IgnoresCycle);
     ns.setLevel(NSStatusWindowLevel);
-    PANEL_WINDOW.store(ns.windowNumber() as u32, std::sync::atomic::Ordering::Relaxed);
+    if win.label() == "rail" {
+        PANEL_WINDOW.store(ns.windowNumber() as u32, std::sync::atomic::Ordering::Relaxed);
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn clipboard_text() -> String {
+    use objc2_app_kit::{NSPasteboard, NSPasteboardTypeString};
+    #[allow(unused_unsafe)]
+    unsafe { NSPasteboard::generalPasteboard().stringForType(NSPasteboardTypeString) }
+        .map(|t| t.to_string())
+        .unwrap_or_default()
+}
+
+#[cfg(not(target_os = "macos"))]
+fn clipboard_text() -> String {
+    String::new()
+}
+
+// The capture box: a key panel like the rail's, so it takes the keyboard from whatever app
+// you are in without bringing this one forward, and closing it hands the keys straight back.
+fn note_window(app: &AppHandle) -> Option<WebviewWindow> {
+    if let Some(w) = app.get_webview_window(NOTE) {
+        return Some(w);
+    }
+    let w = WebviewWindowBuilder::new(app, NOTE, WebviewUrl::App("index.html?note".into()))
+        .inner_size(NOTE_SIZE.0, NOTE_SIZE.1)
+        .decorations(false)
+        .transparent(true)
+        .shadow(false)
+        .always_on_top(true)
+        .skip_taskbar(true)
+        .resizable(false)
+        .visible(false)
+        .focused(false)
+        .build()
+        .ok()?;
+    #[cfg(target_os = "macos")]
+    make_panel(&w);
+    Some(w)
+}
+
+fn open_note(app: &AppHandle) {
+    let Some(w) = note_window(app) else { return };
+    if w.is_visible().unwrap_or(false) {
+        hide_note(&w);
+        return;
+    }
+    #[cfg(target_os = "macos")]
+    place_under_mouse(&w);
+    #[cfg(not(target_os = "macos"))]
+    if let Ok(c) = w.cursor_position() {
+        if let Ok(Some(m)) = w.monitor_from_point(c.x, c.y) {
+            let (pos, size, s) = (m.position(), m.size(), m.scale_factor());
+            let x = pos.x as f64 + (size.width as f64 - NOTE_SIZE.0 * s) / 2.0;
+            let y = pos.y as f64 + size.height as f64 * 0.24;
+            let _ = w.set_position(tauri::PhysicalPosition::new(x as i32, y as i32));
+        }
+    }
+    let _ = w.emit("note-open", clipboard_text());
+    #[cfg(target_os = "macos")]
+    take_focus(&w);
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = w.show();
+        let _ = w.set_focus();
+    }
+}
+
+// Done in AppKit's own coordinates: tauri's cursor position is in physical pixels of the
+// primary display, which lands on the wrong screen when the displays have different scales.
+#[cfg(target_os = "macos")]
+fn place_under_mouse(w: &WebviewWindow) {
+    use objc2_app_kit::{NSEvent, NSScreen};
+    use objc2_foundation::{NSPoint, NSPointInRect};
+    let Some(mtm) = objc2::MainThreadMarker::new() else { return };
+    let Some(ns) = ns_window(w) else { return };
+    let mouse = NSEvent::mouseLocation();
+    let screens = NSScreen::screens(mtm);
+    let Some(screen) = screens.iter().find(|s| NSPointInRect(mouse, s.frame())).or_else(|| screens.firstObject()) else {
+        return;
+    };
+    let f = screen.visibleFrame();
+    let size = ns.frame().size;
+    let x = f.origin.x + (f.size.width - size.width) / 2.0;
+    let y = f.origin.y + f.size.height * 0.76 - size.height;
+    ns.setFrameOrigin(NSPoint::new(x, y));
+}
+
+fn hide_note(w: &WebviewWindow) {
+    let _ = w.hide();
+}
+
+#[tauri::command]
+fn note_close(app: AppHandle) {
+    if let Some(w) = app.get_webview_window(NOTE) {
+        hide_note(&w);
+    }
 }
 
 #[cfg(target_os = "macos")]
@@ -723,20 +815,24 @@ fn give_focus_back(win: &WebviewWindow) {
 fn main() {
     // A global hotkey wins over app shortcuts: while the rail runs, ⌘⇧A no longer reaches
     // Chromium's tab search, Slack's unreads or Finder's Applications folder.
-    let toggle_key = Shortcut::new(Some(Modifiers::SUPER | Modifiers::SHIFT), Code::KeyA);
+    let note_key = Shortcut::new(Some(Modifiers::SUPER | Modifiers::SHIFT), Code::KeyA);
     tauri::Builder::default()
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
                 .with_handler(move |app, shortcut, event| {
-                    if *shortcut == toggle_key && event.state() == ShortcutState::Pressed {
-                        toggle_from_keyboard(app);
+                    if *shortcut == note_key && event.state() == ShortcutState::Pressed {
+                        open_note(app);
                     }
                 })
                 .build(),
         )
-        .invoke_handler(tauri::generate_handler![rail_height, rail_edge, rail_drag, rail_collapse, set_tray_title])
+        .invoke_handler(tauri::generate_handler![rail_height, rail_edge, rail_drag, rail_collapse, set_tray_title, note_close])
         .on_window_event(|win, event| {
             if let WindowEvent::Focused(false) = event {
+                if win.label() == NOTE {
+                    let _ = win.hide();
+                    return;
+                }
                 let app = win.app_handle();
                 let r = app.state::<Mutex<Rail>>().lock().unwrap().clone();
                 if r.expanded && r.pinned {
@@ -769,10 +865,11 @@ fn main() {
 
             {
                 use tauri_plugin_global_shortcut::GlobalShortcutExt;
-                if let Err(e) = app.global_shortcut().register(toggle_key) {
-                    eprintln!("could not register ⌘⇧A, the notch panel can't be opened: {e}");
+                if let Err(e) = app.global_shortcut().register(note_key) {
+                    eprintln!("could not register ⌘⇧A, notes can't be captured: {e}");
                 }
             }
+            note_window(app.handle());
 
             let toggle = MenuItem::with_id(app, "toggle", "Mostrar / ocultar riel", true, None::<&str>)?;
             let edge = MenuItem::with_id(app, "edge", "Pasar al otro borde", true, None::<&str>)?;

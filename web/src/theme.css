@@ -444,6 +444,7 @@ html.edge-notch body { overflow: hidden; }
 .jira { --s: var(--src-jira); --s-bg: var(--src-jira-bg); --s-line: var(--src-jira-line); }
 .slack { --s: var(--src-slack); --s-bg: var(--src-slack-bg); --s-line: var(--src-slack-line); }
 .mail { --s: var(--src-mail); --s-bg: var(--src-mail-bg); --s-line: var(--src-mail-line); }
+.pinsrc { --s: var(--acc); --s-bg: var(--acc-soft); --s-line: var(--wait-line); }
 .alert { --s: var(--src-alert); --s-bg: var(--src-alert-bg); --s-line: var(--src-alert-line); }
 
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
@@ -584,3 +585,26 @@ html.edge-notch body { overflow: hidden; }
   .split { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) minmax(0, 1fr); }
   .pane + .pane { border-left: none; border-top: 1px solid var(--line); }
 }
+
+/* note capture (⌘⇧A) --------------------------------------------------- */
+.note-host, .note-host body { background: transparent; }
+.note-host #root { padding: 10px 20px 30px; }
+.ncap {
+  border-radius: 18px; background: var(--bg); overflow: hidden;
+  box-shadow: 0 18px 40px oklch(0 0 0 / 0.45), inset 0 0 0 1px var(--line);
+}
+.note-top { display: flex; align-items: center; gap: 12px; padding: 16px 18px 10px; }
+.note-pin { flex: none; color: var(--acc); }
+.note-field { flex: 1; display: flex; }
+.note-field input { flex: 1; min-width: 0; border: 0; outline: none; background: none; font-size: 19px; font-weight: 500; color: var(--txt); }
+.note-field input::placeholder { color: var(--dim2); }
+.note-meta { display: flex; align-items: center; gap: 8px; padding: 0 18px 12px; min-height: 30px; }
+.note-meta .ipill button { width: 18px; height: 18px; border: 0; border-radius: 5px; background: none; color: inherit; cursor: pointer; font-size: 14px; line-height: 1; }
+.note-hint { font-size: 12px; color: var(--dim2); }
+.note-when { display: flex; gap: 2px; padding: 2px; border-radius: 9px; background: var(--bg2); flex: none; }
+.note-when button { height: 24px; padding: 0 10px; border: 0; border-radius: 7px; background: none; color: var(--dim2); font-size: 12px; cursor: pointer; white-space: nowrap; }
+.note-when button[aria-pressed="true"] { background: var(--bg3); color: var(--txt); }
+.note-foot { display: flex; align-items: center; gap: 18px; padding: 8px 18px; border-top: 1px solid var(--line); font-size: 12px; color: var(--dim2); }
+.note-foot b { font-family: var(--mono); font-weight: 500; color: var(--dim); }
+.note-foot .ok { color: var(--ok-ink); font-weight: 600; }
+.note-foot .err { color: var(--prio-red); }

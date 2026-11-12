@@ -14,9 +14,10 @@ export const SOURCE_NAME: Record<InboxSource, string> = {
   slack: "Slack",
   mail: "Mail",
   alert: "Alerta",
+  note: "Nota",
 };
 
-export function SourceIcon({ source, size = 14 }: { source: InboxSource | "now" | "done"; size?: number }) {
+export function SourceIcon({ source, size = 14 }: { source: InboxSource | "now" | "done" | "pin"; size?: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden="true" {...common}>
       {source === "pr" && (
@@ -42,6 +43,7 @@ export function SourceIcon({ source, size = 14 }: { source: InboxSource | "now" 
       )}
       {source === "alert" && <path d="M12 4 2.5 20h19zM12 10v4.5M12 17.5v.01" />}
       {source === "now" && <path d="M13 3 5 13.5h6L10 21l8-10.5h-6z" />}
+      {(source === "pin" || source === "note") && <path d="M12 17v5M9 10.8V4h6v6.8l3 3.2H6z" />}
       {source === "done" && (
         <>
           <circle cx="12" cy="12" r="9" />

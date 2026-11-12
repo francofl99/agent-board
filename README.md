@@ -138,6 +138,22 @@ Keys: `x` done · `a` approve · `s` snooze until tomorrow 9:00 · `d` dismiss �
 `1–5` filter by source · `t` switch tab. The split button (or `v`) shows sessions
 and Bandeja side by side; there `t` moves the keyboard between panes.
 
+### Notes (`⌘⇧A`)
+
+While the desktop rail runs, `⌘⇧A` opens a capture box over any app, Spotlight-style, to
+note something for the next inbox run. If the clipboard holds a Slack, GitHub PR, Jira or
+Gmail link it comes attached, labelled with its source; paste one or leave it as a plain
+note. `Tab` picks when to bring it back (next run, tomorrow 9:00, in 2 h), `Enter` saves,
+`Esc` closes. The box is a non-activating panel, so the app you were in keeps the menu bar
+and gets the keyboard back when it closes.
+
+Notes go to `~/.agent-board/notes.json`, written only by the board, and show at once in
+an **Anotados** section at the top of Bandeja. The routine reads the due ones and answers
+with an item whose id is `note:<id>`: it opens the linked thread, PR or issue, summarises
+where it stands and proposes the reply, with your note as the intent; it marks the item
+`resolved` when the source shows it was handled. Done, snooze and dismiss act on the note
+itself.
+
 ### Closing a session you're done with
 
 A session can sit in `waiting_input` forever because you already moved on. `x` — or
@@ -189,7 +205,7 @@ around the camera: waiting sessions as chips on the left, working ones on the ri
 rotating as a carousel when they don't fit. On a regular desktop it shows nothing.
 It never expands: pointing at the bar makes it step aside (see-through and click-through)
 so the menu bar the full-screen app hides under it can show, and it comes back a moment
-after the cursor leaves. `⌘⇧A` widens the side rail; in the notch it does nothing.
+after the cursor leaves.
 
 It is a [Tauri](https://tauri.app) shell around the `?rail` view of the web UI, so it
 needs the API running (`npm start`) and Rust installed:
