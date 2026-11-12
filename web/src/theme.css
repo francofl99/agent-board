@@ -608,3 +608,7 @@ html.edge-notch body { overflow: hidden; }
 .note-foot b { font-family: var(--mono); font-weight: 500; color: var(--dim); }
 .note-foot .ok { color: var(--ok-ink); font-weight: 600; }
 .note-foot .err { color: var(--prio-red); }
+.isent h4 a { letter-spacing: 0; text-transform: none; }
+.isent p { white-space: pre-wrap; }
+.ierr { font-size: 12.5px !important; color: var(--prio-red) !important; }
+.iacts button:disabled { opacity: 0.5; cursor: default; }

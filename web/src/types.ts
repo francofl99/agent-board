@@ -120,6 +120,14 @@ export interface InboxItem {
   pinned: boolean;
   remindAt: string;
   noteText: string;
+  canSend: boolean;
+  sent: SentReply | null;
+}
+
+export interface SentReply {
+  at: string;
+  text: string;
+  permalink: string;
 }
 
 export interface InboxResponse {

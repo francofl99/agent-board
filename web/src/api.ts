@@ -1,4 +1,4 @@
-import type { DetailResponse, FleetResponse, InboxResponse, InboxStatus, Settings, Theme } from "./types";
+import type { DetailResponse, FleetResponse, InboxResponse, InboxStatus, SentReply, Settings, Theme } from "./types";
 
 // The desktop shell serves the bundled page from its own origin, so it has to name
 // the local API explicitly; the browser build is served by the API itself.
@@ -34,3 +34,7 @@ export const saveDecision = (id: string, patch: { status?: InboxStatus; approve?
 
 export const addNote = (note: { text: string; url: string; remindAt: string }) =>
   req<unknown>("/api/notes", { method: "POST", body: JSON.stringify(note) });
+
+export const getSlack = () => req<{ configured: boolean }>("/api/slack");
+export const sendReply = (id: string, text: string) =>
+  req<SentReply>(`/api/inbox/${encodeURIComponent(id)}/send`, { method: "POST", body: JSON.stringify({ text }) });

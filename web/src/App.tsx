@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { getFleet, getInbox, saveDecision, saveUser } from "./api";
+import { getFleet, getInbox, saveDecision, saveUser, sendReply } from "./api";
 import { type Decide, Inbox } from "./Inbox";
 import { List } from "./List";
 import { groupByStatus } from "./sessions";
@@ -127,6 +127,15 @@ export function App() {
     );
   }, []);
 
+  const send = useCallback(async (item: InboxItem, text: string) => {
+    const sent = await sendReply(item.id, text);
+    inbox.setData((d) =>
+      d === null
+        ? d
+        : { ...d, items: d.items.map((i) => (i.id === item.id ? { ...i, status: "done" as const, sent } : i)) }
+    );
+  }, []);
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (settings) {
@@ -197,6 +206,7 @@ export function App() {
               data={inbox.data}
               error={inbox.error}
               onDecide={decide}
+              onSend={send}
               onSettings={openSettings}
               active={pane === "inbox"}
               brand={false}
@@ -208,7 +218,8 @@ export function App() {
   }
 
   return view === "inbox" ? (
-    <Inbox data={inbox.data} error={inbox.error} tabs={tabs} onDecide={decide} onSettings={() => setSettings(true)} />
+    <Inbox data={inbox.data} error={inbox.error} tabs={tabs} onDecide={decide}
+              onSend={send} onSettings={() => setSettings(true)} />
   ) : (
     <List
       data={fleet.data}

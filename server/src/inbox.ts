@@ -2,6 +2,7 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import { CONFIG_DIR } from "./config.js";
 import { loadNotes, type Note, updateNote } from "./notes.js";
+import { type Sent, targetOf } from "./slack.js";
 
 // The inbox-triage routine writes the report; the board only ever writes decisions.
 // Two files with one owner each, so a routine run and a click never race on the same file.
@@ -58,6 +59,8 @@ export interface Decision {
   // The proposal this approval answers: a regenerated proposal must not inherit it.
   approvedFor: string;
   approvedText: string;
+  // A reply sent from the board; kept even if the item changes afterwards.
+  sent?: Sent;
 }
 
 export interface InboxView extends InboxItem {
@@ -67,6 +70,8 @@ export interface InboxView extends InboxItem {
   pinned: boolean;
   remindAt: string;
   noteText: string;
+  canSend: boolean;
+  sent: Sent | null;
 }
 
 const NOTE_PREFIX = "note:";
@@ -108,6 +113,10 @@ function approvalOf(item: InboxItem, d: Decision | undefined) {
   return { approved, approvedText: approved ? d.approvedText : "" };
 }
 
+function sendingOf(item: InboxItem, d: Decision | undefined) {
+  return { canSend: item.source === "slack" && targetOf(item.url) !== null, sent: d?.sent ?? null };
+}
+
 const NOTE_STATUS: Record<Note["status"], InboxStatus> = { open: "pending", done: "done", dismissed: "dismissed" };
 
 // Until the routine picks a note up, the board shows it as you wrote it; once it does, its
@@ -133,7 +142,16 @@ function noteView(note: Note, label: string, enriched: InboxItem | undefined, d:
     executed: null,
   };
   const status = note.status === "open" && enriched?.resolved === true ? "done" : NOTE_STATUS[note.status];
-  return { ...base, ...approvalOf(base, d), status, pinned: true, remindAt: note.remindAt, noteText: note.text };
+  return {
+    ...base,
+    label,
+    ...approvalOf(base, d),
+    ...sendingOf(base, d),
+    status,
+    pinned: true,
+    remindAt: note.remindAt,
+    noteText: note.text,
+  };
 }
 
 function closedToday(note: Note): boolean {
@@ -156,6 +174,7 @@ export async function inboxView(): Promise<{ report: Omit<InboxReport, "items">;
       return {
         ...item,
         ...approvalOf(item, d),
+        ...sendingOf(item, d),
         status: statusOf(item, d, now),
         pinned: false,
         remindAt: "",
@@ -210,9 +229,34 @@ export async function saveDecision(id: string, patch: DecisionPatch): Promise<un
     next.approvedText = patch.approve ? (patch.text ?? item.action.text) : "";
   }
   all[id] = next;
+  await writeDecisions(all);
+  return next;
+}
+
+async function writeDecisions(all: Record<string, Decision>): Promise<void> {
   await fs.mkdir(CONFIG_DIR, { recursive: true });
   const tmp = DECISIONS_FILE + ".tmp";
   await fs.writeFile(tmp, JSON.stringify(all, null, 2) + "\n");
   await fs.rename(tmp, DECISIONS_FILE);
-  return next;
+}
+
+export async function findItem(id: string): Promise<InboxView | undefined> {
+  return (await inboxView()).items.find((i) => i.id === id);
+}
+
+// Sending is the answer, so the item closes with it; the routine sees `sent` and stops asking.
+export async function recordSent(item: InboxView, sent: Sent): Promise<void> {
+  await saveDecision(item.id, { status: "done" });
+  const all = await loadDecisions();
+  const prev = all[item.id];
+  const base: Decision = prev ?? {
+    status: "done",
+    fingerprint: item.fingerprint,
+    at: "",
+    snoozeUntil: "",
+    approvedFor: "",
+    approvedText: "",
+  };
+  all[item.id] = { ...base, status: "done", at: sent.at, sent };
+  await writeDecisions(all);
 }
