@@ -1,0 +1,16 @@
+{
+  "display_information": {
+    "name": "Agent Board",
+    "description": "Replies from the local Agent Board inbox, as you."
+  },
+  "oauth_config": {
+    "scopes": {
+      "user": ["chat:write"]
+    }
+  },
+  "settings": {
+    "org_deploy_enabled": false,
+    "socket_mode_enabled": false,
+    "token_rotation_enabled": false
+  }
+}

@@ -1,4 +1,5 @@
 import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { getSlack } from "./api";
 import { ago, clock } from "./format";
 import { SOURCE_NAME, SourceIcon } from "./SourceIcon";
 import type { InboxItem, InboxResponse, InboxSource, InboxStatus } from "./types";
@@ -49,12 +50,37 @@ interface RowProps {
   onToggle: () => void;
   onDraft: (text: string) => void;
   onDecide: (patch: Decide) => void;
+  slackReady: boolean;
+  onSend: (text: string) => Promise<void>;
 }
 
-function Row({ item, selected, open, draft, onToggle, onDraft, onDecide }: RowProps) {
+const isDm = (url: string) => /\/archives\/D[A-Z0-9]+\//i.test(url);
+
+function Row({ item, selected, open, draft, onToggle, onDraft, onDecide, slackReady, onSend }: RowProps) {
+  const [sending, setSending] = useState<"idle" | "sending" | "error">("idle");
+  const [sendError, setSendError] = useState("");
   const done = item.status === "done";
   const tag = item.executed !== null ? `ejecutada · ${item.executed.result}` : STATUS_TAG[item.status];
   const text = draft ?? (item.approved ? item.approvedText : item.action?.text ?? "");
+  const sendable = item.canSend && slackReady && item.sent === null && item.status === "pending";
+  const send = async () => {
+    if (!sendable || text.trim() === "" || sending === "sending") return;
+    setSending("sending");
+    try {
+      await onSend(text.trim());
+      setSending("idle");
+    } catch (e) {
+      const raw = (e as Error).message.replace(/^\d+ /, "");
+      let reason = raw;
+      try {
+        reason = (JSON.parse(raw) as { error?: string }).error ?? raw;
+      } catch {
+        // Not the API's JSON (network down): show it as it came.
+      }
+      setSendError(reason);
+      setSending("error");
+    }
+  };
   const cls = ["irow", item.source === "note" ? "pinsrc" : item.source, hot(item) ? "hot" : "", resolved(item) ? "resolved" : "", selected ? "sel" : ""];
   return (
     <article className={cls.filter(Boolean).join(" ")} data-row={item.id}>
@@ -80,6 +106,7 @@ function Row({ item, selected, open, draft, onToggle, onDraft, onDecide }: RowPr
           <span className="ihint">{item.hint}</span>
         </button>
         {item.approved && <span className="itag ok">aprobada · próxima corrida</span>}
+        {item.sent !== null && <span className="itag ok">enviado {clock(item.sent.at)}</span>}
         {remindTag(item) !== undefined && <span className="itag">{remindTag(item)}</span>}
         {tag !== undefined && <span className="itag">{tag}</span>}
         <span className="iwhere">{item.where}</span>
@@ -129,7 +156,39 @@ function Row({ item, selected, open, draft, onToggle, onDraft, onDecide }: RowPr
             )}
           </div>
           <div className="icol">
-            {item.action !== null && item.executed === null && (
+            {sendable && (
+              <label className="iprop">
+                <span className="ilabel">
+                  <span>{item.action?.label ?? "Respuesta"}</span>
+                  <span className="dim">Slack · {isDm(item.url) ? "DM" : "hilo"}</span>
+                </span>
+                <textarea
+                  rows={5}
+                  value={text}
+                  placeholder="Escribí la respuesta…"
+                  disabled={sending === "sending"}
+                  onChange={(e) => onDraft(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && e.metaKey) {
+                      e.preventDefault();
+                      send();
+                    }
+                  }}
+                />
+              </label>
+            )}
+            {item.sent !== null && (
+              <div className="isent">
+                <h4>
+                  Enviado {clock(item.sent.at)} ·{" "}
+                  <a href={item.sent.permalink} target="_blank" rel="noreferrer">
+                    ver en Slack ↗
+                  </a>
+                </h4>
+                <p>{item.sent.text}</p>
+              </div>
+            )}
+            {!sendable && item.sent === null && item.action !== null && item.executed === null && (
               <label className="iprop">
                 <span className="ilabel">
                   <span>{item.action.label}</span>
@@ -144,7 +203,12 @@ function Row({ item, selected, open, draft, onToggle, onDraft, onDecide }: RowPr
               </label>
             )}
             <div className="iacts">
-              {item.action !== null && item.executed === null && (
+              {sendable && (
+                <button className="primary" disabled={sending === "sending" || text.trim() === ""} onClick={send}>
+                  {sending === "sending" ? "Enviando…" : `Enviar ${isDm(item.url) ? "DM" : "en el hilo"}`} <kbd>⌘↵</kbd>
+                </button>
+              )}
+              {!sendable && item.sent === null && item.action !== null && item.executed === null && (
                 <button
                   className={`primary${item.approved ? " on" : ""}`}
                   onClick={() => onDecide(item.approved ? { approve: false } : { approve: true, text })}
@@ -165,11 +229,18 @@ function Row({ item, selected, open, draft, onToggle, onDraft, onDecide }: RowPr
                 {item.status === "dismissed" ? "Restaurar" : "Descartar"} <kbd>d</kbd>
               </button>
             </div>
-            {item.action !== null && (
-              <p className="inote">
-                Nada se envía desde acá: Claude ejecuta lo aprobado en la próxima corrida, y solo si la propuesta
-                sigue siendo la misma.
-              </p>
+            {sending === "error" && <p className="ierr">No se envió: {sendError}</p>}
+            {sendable ? (
+              <p className="inote">Se envía como vos, al confirmar, y el item queda como tratado.</p>
+            ) : item.canSend && !slackReady && item.sent === null ? (
+              <p className="inote">Para responder desde acá, configurá el token de Slack (ver README).</p>
+            ) : (
+              item.action !== null && (
+                <p className="inote">
+                  Nada se envía desde acá: Claude ejecuta lo aprobado en la próxima corrida, y solo si la propuesta
+                  sigue siendo la misma.
+                </p>
+              )
             )}
           </div>
         </div>
@@ -183,12 +254,20 @@ interface Props {
   error: string;
   tabs?: ReactNode;
   onDecide: (item: InboxItem, patch: Decide) => void;
+  onSend: (item: InboxItem, text: string) => Promise<void>;
   onSettings: () => void;
   active?: boolean;
   brand?: boolean;
 }
 
-export function Inbox({ data, error, tabs, onDecide, onSettings, active = true, brand = true }: Props) {
+export function Inbox({ data, error, tabs, onDecide, onSend, onSettings, active = true, brand = true }: Props) {
+  const [slackReady, setSlackReady] = useState(false);
+  useEffect(() => {
+    getSlack().then(
+      (s) => setSlackReady(s.configured),
+      () => setSlackReady(false)
+    );
+  }, []);
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<Filter>("all");
   const [selId, setSelId] = useState<string | null>(null);
@@ -280,6 +359,11 @@ export function Inbox({ data, error, tabs, onDecide, onSettings, active = true, 
       onToggle={() => toggle(item.id)}
       onDraft={(text) => setDrafts((d) => ({ ...d, [item.id]: text }))}
       onDecide={(patch) => decide(item, patch)}
+      slackReady={slackReady}
+      onSend={async (text) => {
+        await onSend(item, text);
+        setDrafts(({ [item.id]: _, ...rest }) => rest);
+      }}
     />
   );
 

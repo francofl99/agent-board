@@ -154,6 +154,29 @@ where it stands and proposes the reply, with your note as the intent; it marks t
 `resolved` when the source shows it was handled. Done, snooze and dismiss act on the note
 itself.
 
+### Replying on Slack from Bandeja
+
+A Slack item can be answered from its open card: the proposed reply comes loaded, edit it
+or write your own, and **Enviar** (`⌘↵`) posts it as you with `chat.postMessage`, in the
+thread the item's permalink points to (a loose channel message gets a thread under it; a
+DM gets the reply in the conversation). Once Slack confirms, the item is marked done and
+shows a link to the message; the routine sees `sent` and stops asking.
+
+It needs a user token with `chat:write`, once:
+
+1. At [api.slack.com/apps](https://api.slack.com/apps) → **Create New App** → **From a
+   manifest**, pick the workspace and paste [`server/slack-manifest.json`](server/slack-manifest.json).
+2. **Install to Workspace** (an admin may have to approve it) and copy the **User OAuth
+   Token** (`xoxp-…`) from **OAuth & Permissions**.
+3. Put it in `server/.env` (git-ignored) as `SLACK_USER_TOKEN=xoxp-…`, or in the Keychain:
+   `security add-generic-password -s agent-board-slack -a slack -w` (it asks for the token).
+4. Restart the server.
+
+Only the board's own pages and local processes can send: the endpoint refuses a request
+from any other web page (by its Origin) or Host, since the rest of the API answers CORS to
+anyone. [personal-console](https://github.com/francofl99/personal-console) forwards a send
+from its own origin through its server, which posts without an Origin.
+
 ### Closing a session you're done with
 
 A session can sit in `waiting_input` forever because you already moved on. `x` — or

@@ -5,8 +5,9 @@ import { fileURLToPath } from "node:url";
 import { loadAppConfig, saveAppConfig } from "./config.js";
 import { scanFleet } from "./fleet.js";
 import { defaultTarget, openSession, optionsFor, revealFile, type OpenTarget } from "./open.js";
-import { inboxView, saveDecision, type InboxStatus } from "./inbox.js";
+import { findItem, inboxView, recordSent, saveDecision, type InboxStatus } from "./inbox.js";
 import { addNote, loadNotes } from "./notes.js";
+import { sendReply, slackConfigured, targetOf } from "./slack.js";
 import { readTranscript } from "./timeline.js";
 import { addGroup, knownGroups, saveUserData } from "./store.js";
 import { loadThemes, THEMES_DIR } from "./themes.js";
@@ -14,6 +15,12 @@ import type { ScanResult } from "./fleet.js";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const WEB_DIR = path.join(HERE, "..", "..", "web", "dist");
+// Optional server/.env (SLACK_USER_TOKEN); variables already set win.
+try {
+  process.loadEnvFile(path.join(HERE, "..", ".env"));
+} catch {
+  // No .env: the Keychain or nothing.
+}
 
 const MIME: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
@@ -82,6 +89,18 @@ async function serveStatic(url: string, res: http.ServerResponse): Promise<void>
   createReadStream(file).pipe(res);
 }
 
+// A browser always names the page behind a cross-site POST, so a request with no Origin
+// comes from a local process (personal-console's proxy), which could read the token anyway.
+function fromBoard(req: http.IncomingMessage, port: number): boolean {
+  const local = [`127.0.0.1:${port}`, `localhost:${port}`];
+  const pages = [...local, "127.0.0.1:4320", "localhost:4320"].map((h) => `http://${h}`);
+  const origins = new Set([...pages, "tauri://localhost"]);
+  const origin = req.headers.origin;
+  return local.includes(req.headers.host ?? "") && (origin === undefined || origins.has(origin));
+}
+
+let cfgPort = 4319;
+
 async function handle(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
   const url = new URL(req.url ?? "/", "http://localhost");
   const p = url.pathname;
@@ -147,6 +166,37 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
 
   if (p === "/api/inbox" && req.method === "GET") {
     json(res, 200, await inboxView());
+    return;
+  }
+
+  if (p === "/api/slack" && req.method === "GET") {
+    json(res, 200, { configured: await slackConfigured() });
+    return;
+  }
+
+  const send = p.match(/^\/api\/inbox\/(.+)\/send$/);
+  if (send !== null && req.method === "POST") {
+    // Sends as you, so unlike the rest of the API it refuses any page but the board's own:
+    // CORS alone would let another site open in the browser post here.
+    if (!fromBoard(req, cfgPort)) {
+      json(res, 403, { error: "only the board or a local process can send" });
+      return;
+    }
+    const item = await findItem(decodeURIComponent(send[1]));
+    const target = item === undefined ? null : targetOf(item.url);
+    const body = await readBody(req);
+    const text = typeof body.text === "string" ? body.text.trim() : "";
+    if (item === undefined || target === null || text === "") {
+      json(res, 400, { error: "item without a Slack permalink, or empty text" });
+      return;
+    }
+    try {
+      const sent = await sendReply(target, text);
+      await recordSent(item, sent);
+      json(res, 200, sent);
+    } catch (e) {
+      json(res, 502, { error: (e as Error).message });
+    }
     return;
   }
 
@@ -233,6 +283,7 @@ const server = http.createServer((req, res) => {
 });
 
 const cfg = await loadAppConfig();
+cfgPort = cfg.port;
 // Loopback only: the board reads every local transcript, it must not be reachable
 // from the network.
 server.listen(cfg.port, "127.0.0.1", () => {
