@@ -1,13 +1,14 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { CONFIG_DIR } from "./config.js";
+import { loadNotes, type Note, updateNote } from "./notes.js";
 
 // The inbox-triage routine writes the report; the board only ever writes decisions.
 // Two files with one owner each, so a routine run and a click never race on the same file.
 const REPORT_FILE = path.join(CONFIG_DIR, "inbox.json");
 const DECISIONS_FILE = path.join(CONFIG_DIR, "inbox-decisions.json");
 
-export type InboxSource = "pr" | "jira" | "slack" | "mail" | "alert";
+export type InboxSource = "pr" | "jira" | "slack" | "mail" | "alert" | "note";
 export type InboxPriority = "red" | "orange" | "green" | "info";
 export type InboxStatus = "pending" | "done" | "dismissed" | "snoozed";
 
@@ -37,6 +38,8 @@ export interface InboxItem {
   findings: { severity: string; location: string; text: string }[];
   action: InboxAction | null;
   executed: { at: string; result: string } | null;
+  // Set by the routine on a note's item when the source shows it was handled.
+  resolved?: boolean;
 }
 
 export interface InboxReport {
@@ -61,7 +64,12 @@ export interface InboxView extends InboxItem {
   status: InboxStatus;
   approved: boolean;
   approvedText: string;
+  pinned: boolean;
+  remindAt: string;
+  noteText: string;
 }
+
+const NOTE_PREFIX = "note:";
 
 const EMPTY_REPORT: InboxReport = { generatedAt: null, nextRunAt: null, sourcesDown: [], notes: {}, items: [] };
 
@@ -90,23 +98,71 @@ function statusOf(item: InboxItem, d: Decision | undefined, now: number): InboxS
   return d.status;
 }
 
+function approvalOf(item: InboxItem, d: Decision | undefined) {
+  const approved =
+    d !== undefined &&
+    d.fingerprint === item.fingerprint &&
+    item.action !== null &&
+    d.approvedFor === item.action.hash &&
+    item.executed === null;
+  return { approved, approvedText: approved ? d.approvedText : "" };
+}
+
+const NOTE_STATUS: Record<Note["status"], InboxStatus> = { open: "pending", done: "done", dismissed: "dismissed" };
+
+// Until the routine picks a note up, the board shows it as you wrote it; once it does, its
+// item in inbox.json replaces that, so the summary and the proposed reply show up too.
+function noteView(note: Note, label: string, enriched: InboxItem | undefined, d: Decision | undefined): InboxView {
+  const base: InboxItem = enriched ?? {
+    id: NOTE_PREFIX + note.id,
+    label,
+    source: note.source,
+    priority: "orange",
+    now: false,
+    title: note.text !== "" ? note.text : note.url,
+    hint: note.url !== "" ? note.url : "Nota propia",
+    where: note.ref,
+    who: "",
+    since: note.createdAt,
+    url: note.url,
+    fingerprint: note.createdAt,
+    summary: "",
+    suggestion: "",
+    findings: [],
+    action: null,
+    executed: null,
+  };
+  const status = note.status === "open" && enriched?.resolved === true ? "done" : NOTE_STATUS[note.status];
+  return { ...base, ...approvalOf(base, d), status, pinned: true, remindAt: note.remindAt, noteText: note.text };
+}
+
+function closedToday(note: Note): boolean {
+  return note.status === "open" || new Date(note.closedAt).toDateString() === new Date().toDateString();
+}
+
 export async function inboxView(): Promise<{ report: Omit<InboxReport, "items">; items: InboxView[] }> {
-  const [{ items, ...report }, decisions] = await Promise.all([loadReport(), loadDecisions()]);
+  const [{ items, ...report }, decisions, notes] = await Promise.all([loadReport(), loadDecisions(), loadNotes()]);
   const now = Date.now();
-  return {
-    report,
-    items: items.map((item) => {
+  const enriched = new Map(items.filter((i) => i.id.startsWith(NOTE_PREFIX)).map((i) => [i.id, i]));
+  const pinned = notes
+    .filter(closedToday)
+    .map((note, n) =>
+      noteView(note, `N${n + 1}`, enriched.get(NOTE_PREFIX + note.id), decisions[NOTE_PREFIX + note.id])
+    );
+  const regular = items
+    .filter((i) => !i.id.startsWith(NOTE_PREFIX))
+    .map((item) => {
       const d = decisions[item.id];
-      const current = d !== undefined && d.fingerprint === item.fingerprint;
-      const approved = current && item.action !== null && d.approvedFor === item.action.hash && item.executed === null;
       return {
         ...item,
+        ...approvalOf(item, d),
         status: statusOf(item, d, now),
-        approved,
-        approvedText: approved ? d.approvedText : "",
+        pinned: false,
+        remindAt: "",
+        noteText: "",
       };
-    }),
-  };
+    });
+  return { report, items: [...pinned, ...regular] };
 }
 
 function tomorrowMorning(): string {
@@ -122,7 +178,20 @@ export interface DecisionPatch {
   text?: string;
 }
 
-export async function saveDecision(id: string, patch: DecisionPatch): Promise<Decision | null> {
+const NOTE_PATCH: Record<InboxStatus, "open" | "done" | "dismissed"> = {
+  pending: "open",
+  done: "done",
+  dismissed: "dismissed",
+  snoozed: "open",
+};
+
+export async function saveDecision(id: string, patch: DecisionPatch): Promise<unknown> {
+  if (id.startsWith(NOTE_PREFIX) && patch.status !== undefined) {
+    return updateNote(id.slice(NOTE_PREFIX.length), {
+      status: NOTE_PATCH[patch.status],
+      ...(patch.status === "snoozed" ? { remindAt: tomorrowMorning() } : {}),
+    });
+  }
   const item = (await loadReport()).items.find((i) => i.id === id);
   if (item === undefined) return null;
   const all = await loadDecisions();

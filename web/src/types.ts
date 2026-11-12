@@ -84,7 +84,7 @@ export interface Settings {
   port: number;
 }
 
-export type InboxSource = "pr" | "jira" | "slack" | "mail" | "alert";
+export type InboxSource = "pr" | "jira" | "slack" | "mail" | "alert" | "note";
 export type InboxPriority = "red" | "orange" | "green" | "info";
 export type InboxStatus = "pending" | "done" | "dismissed" | "snoozed";
 
@@ -117,6 +117,9 @@ export interface InboxItem {
   status: InboxStatus;
   approved: boolean;
   approvedText: string;
+  pinned: boolean;
+  remindAt: string;
+  noteText: string;
 }
 
 export interface InboxResponse {
