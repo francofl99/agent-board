@@ -1,4 +1,4 @@
-import { type CSSProperties, useEffect, useMemo, useRef, useState } from "react";
+import { type CSSProperties, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { getDetail } from "./api";
 import { ago, clock, shortModel, usd } from "./format";
 import { ProviderIcon } from "./ProviderIcon";
@@ -153,11 +153,15 @@ interface Props {
   error: string;
   onDismiss: (s: Session, dismissed: boolean) => void;
   onSettings: () => void;
+  tabs?: ReactNode;
+  // In the split view both panes are mounted: only the one in focus may take keys.
+  active?: boolean;
+  brand?: boolean;
 }
 
 // The one list of sessions: who waits on you and who is working, each row opening onto
 // its last moves.
-export function List({ data, error, onDismiss, onSettings }: Props) {
+export function List({ data, error, onDismiss, onSettings, tabs, active = true, brand = true }: Props) {
   const [filter, setFilter] = useState("");
   const [selId, setSelId] = useState<string | null>(null);
   const [opened, setOpened] = useState<Record<string, boolean>>({});
@@ -189,6 +193,7 @@ export function List({ data, error, onDismiss, onSettings }: Props) {
   };
 
   useEffect(() => {
+    if (!active) return;
     const onKey = (e: KeyboardEvent) => {
       const typing = (e.target as HTMLElement).tagName === "INPUT";
       if (e.key === "Escape") {
@@ -236,7 +241,8 @@ export function List({ data, error, onDismiss, onSettings }: Props) {
   return (
     <div className="list">
       <div className="lhead">
-        <b className="lbrand">Agent Board</b>
+        {brand && <b className="lbrand">Agent Board</b>}
+        {tabs}
         <span className="lcount wait">
           <b>{all.waiting.length}</b>
           <span>te esperan{all.waiting.length > 0 ? ` · ${ago(all.waiting[0].lastActivity)}` : ""}</span>

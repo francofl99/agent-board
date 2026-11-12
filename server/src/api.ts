@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { loadAppConfig, saveAppConfig } from "./config.js";
 import { scanFleet } from "./fleet.js";
 import { defaultTarget, openSession, optionsFor, revealFile, type OpenTarget } from "./open.js";
+import { inboxView, saveDecision, type InboxStatus } from "./inbox.js";
 import { readTranscript } from "./timeline.js";
 import { addGroup, knownGroups, saveUserData } from "./store.js";
 import { loadThemes, THEMES_DIR } from "./themes.js";
@@ -128,6 +129,25 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
       json(res, 200, await saveAppConfig(await readBody(req)));
       return;
     }
+  }
+
+  if (p === "/api/inbox" && req.method === "GET") {
+    json(res, 200, await inboxView());
+    return;
+  }
+
+  const inbox = p.match(/^\/api\/inbox\/(.+)$/);
+  if (inbox !== null && req.method === "PATCH") {
+    const body = await readBody(req);
+    const statuses: InboxStatus[] = ["pending", "done", "dismissed", "snoozed"];
+    const saved = await saveDecision(decodeURIComponent(inbox[1]), {
+      ...(statuses.includes(body.status) ? { status: body.status as InboxStatus } : {}),
+      ...(typeof body.approve === "boolean" ? { approve: body.approve } : {}),
+      ...(typeof body.text === "string" ? { text: body.text } : {}),
+    });
+    if (saved === null) json(res, 404, { error: "item not found" });
+    else json(res, 200, saved);
+    return;
   }
 
   const m = p.match(/^\/api\/sessions\/([^/]+)(\/[a-z]+)?$/);

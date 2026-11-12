@@ -55,6 +55,7 @@ export function useTheme() {
     const root = document.documentElement;
     for (const [k, v] of Object.entries(theme.tokens)) root.style.setProperty(k, v);
     root.style.colorScheme = theme.scheme;
+    root.dataset.scheme = theme.scheme;
   }, [themes, resolvedId]);
 
   const setThemeId = (id: string) => {

@@ -1,4 +1,4 @@
-import type { DetailResponse, FleetResponse, Settings, Theme } from "./types";
+import type { DetailResponse, FleetResponse, InboxResponse, InboxStatus, Settings, Theme } from "./types";
 
 // The desktop shell serves the bundled page from its own origin, so it has to name
 // the local API explicitly; the browser build is served by the API itself.
@@ -27,3 +27,7 @@ export const saveUser = (id: string, patch: { group?: string; notes?: string; di
     method: "PATCH",
     body: JSON.stringify(patch),
   });
+
+export const getInbox = () => req<InboxResponse>("/api/inbox");
+export const saveDecision = (id: string, patch: { status?: InboxStatus; approve?: boolean; text?: string }) =>
+  req<unknown>(`/api/inbox/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(patch) });
