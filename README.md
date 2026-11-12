@@ -116,6 +116,28 @@ built-ins. It starts from Grafito, so a file only needs the tokens it changes:
 Only `--*` keys are read from a theme file — a theme can restyle the app, not inject
 anything else into it.
 
+### Bandeja
+
+A second tab next to the session list shows what waits on you outside the agents:
+PRs to review, Jira, Slack and mail, each source with its own colour and icon. An
+external routine (a scheduled Claude Code task) gathers it and writes the report;
+the board only displays it and records what you decide.
+
+```
+routine  ──writes──►  ~/.agent-board/inbox.json            report: items, summaries, proposed replies
+board    ──writes──►  ~/.agent-board/inbox-decisions.json  your marks: done, snoozed, dismissed, approved
+```
+
+Each file has one writer, so a routine run and a click never race. A decision is
+kept with the item's fingerprint (a PR's head, a thread's last message): when the
+item changes, it comes back as pending. An approval also names the proposal it
+answers, so a regenerated proposal does not inherit it. Nothing is sent from the
+board: the routine reads the approvals on its next run.
+
+Keys: `x` done · `a` approve · `s` snooze until tomorrow 9:00 · `d` dismiss ·
+`1–5` filter by source · `t` switch tab. The split button (or `v`) shows sessions
+and Bandeja side by side; there `t` moves the keyboard between panes.
+
 ### Closing a session you're done with
 
 A session can sit in `waiting_input` forever because you already moved on. `x` — or

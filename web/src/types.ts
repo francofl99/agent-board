@@ -83,3 +83,48 @@ export interface Settings {
   fleetWindowHours: number;
   port: number;
 }
+
+export type InboxSource = "pr" | "jira" | "slack" | "mail" | "alert";
+export type InboxPriority = "red" | "orange" | "green" | "info";
+export type InboxStatus = "pending" | "done" | "dismissed" | "snoozed";
+
+export interface InboxAction {
+  kind: string;
+  label: string;
+  target: string;
+  text: string;
+  hash: string;
+}
+
+export interface InboxItem {
+  id: string;
+  label: string;
+  source: InboxSource;
+  priority: InboxPriority;
+  now: boolean;
+  title: string;
+  hint: string;
+  where: string;
+  who: string;
+  since: string;
+  url: string;
+  fingerprint: string;
+  summary: string;
+  suggestion: string;
+  findings: { severity: string; location: string; text: string }[];
+  action: InboxAction | null;
+  executed: { at: string; result: string } | null;
+  status: InboxStatus;
+  approved: boolean;
+  approvedText: string;
+}
+
+export interface InboxResponse {
+  report: {
+    generatedAt: string | null;
+    nextRunAt: string | null;
+    sourcesDown: { source: string; error: string }[];
+    notes: Partial<Record<InboxSource, string>>;
+  };
+  items: InboxItem[];
+}
