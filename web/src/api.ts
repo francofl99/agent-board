@@ -38,3 +38,6 @@ export const addNote = (note: { text: string; url: string; remindAt: string }) =
 export const getSlack = () => req<{ configured: boolean }>("/api/slack");
 export const sendReply = (id: string, text: string) =>
   req<SentReply>(`/api/inbox/${encodeURIComponent(id)}/send`, { method: "POST", body: JSON.stringify({ text }) });
+
+export const openLink = (url: string) =>
+  req<{ ok: boolean }>("/api/open-link", { method: "POST", body: JSON.stringify({ url }) });
