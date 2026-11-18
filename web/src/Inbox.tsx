@@ -1,5 +1,5 @@
-import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
-import { getSlack } from "./api";
+import { type MouseEvent, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { getSlack, openLink } from "./api";
 import { ago, clock } from "./format";
 import { SOURCE_NAME, SourceIcon } from "./SourceIcon";
 import type { InboxItem, InboxResponse, InboxSource, InboxStatus } from "./types";
@@ -11,6 +11,13 @@ export interface Decide {
 }
 
 type Filter = "all" | InboxSource;
+
+// The server opens it in the configured browser profile; if it can't, the plain link still works.
+function viaBrowserProfile(e: MouseEvent<HTMLAnchorElement>) {
+  const url = e.currentTarget.href;
+  e.preventDefault();
+  openLink(url).catch(() => window.open(url, "_blank", "noreferrer"));
+}
 
 const FILTERS: [Filter, string][] = [
   ["all", "Todo"],
@@ -150,7 +157,7 @@ function Row({ item, selected, open, draft, onToggle, onDraft, onDecide, slackRe
               </div>
             )}
             {item.url !== "" && (
-              <a href={item.url} target="_blank" rel="noreferrer">
+              <a href={item.url} target="_blank" rel="noreferrer" onClick={viaBrowserProfile}>
                 Abrir en {SOURCE_NAME[item.source]} ↗
               </a>
             )}
@@ -181,7 +188,7 @@ function Row({ item, selected, open, draft, onToggle, onDraft, onDecide, slackRe
               <div className="isent">
                 <h4>
                   Enviado {clock(item.sent.at)} ·{" "}
-                  <a href={item.sent.permalink} target="_blank" rel="noreferrer">
+                  <a href={item.sent.permalink} target="_blank" rel="noreferrer" onClick={viaBrowserProfile}>
                     ver en Slack ↗
                   </a>
                 </h4>

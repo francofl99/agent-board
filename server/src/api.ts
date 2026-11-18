@@ -4,7 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { loadAppConfig, saveAppConfig } from "./config.js";
 import { scanFleet } from "./fleet.js";
-import { defaultTarget, openSession, optionsFor, revealFile, type OpenTarget } from "./open.js";
+import { defaultTarget, openLink, openSession, optionsFor, revealFile, type OpenTarget } from "./open.js";
 import { findItem, inboxView, recordSent, saveDecision, type InboxStatus } from "./inbox.js";
 import { addNote, loadNotes } from "./notes.js";
 import { sendReply, slackConfigured, targetOf } from "./slack.js";
@@ -171,6 +171,22 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
 
   if (p === "/api/slack" && req.method === "GET") {
     json(res, 200, { configured: await slackConfigured() });
+    return;
+  }
+
+  if (p === "/api/open-link" && req.method === "POST") {
+    if (!fromBoard(req, cfgPort)) {
+      json(res, 403, { error: "only the board can open links" });
+      return;
+    }
+    const body = await readBody(req);
+    const link = typeof body.url === "string" ? body.url : "";
+    if (!/^https?:\/\//.test(link)) {
+      json(res, 400, { error: "http(s) url required" });
+      return;
+    }
+    await openLink(link, (await loadAppConfig()).linkBrowser);
+    json(res, 200, { ok: true });
     return;
   }
 

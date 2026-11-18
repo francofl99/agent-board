@@ -11,6 +11,13 @@ export interface AppConfig {
   fleetWindowHours: number; // how far back a dead session still shows in Fleet
   port: number;
   theme: string; // a theme id, or "auto" to follow the system appearance
+  linkBrowser: LinkBrowser;
+}
+
+// Empty profileDirectory hands links to macOS, which picks whichever profile was used last.
+export interface LinkBrowser {
+  app: string;
+  profileDirectory: string;
 }
 
 export const CONFIG_DIR = path.join(os.homedir(), ".agent-board");
@@ -27,6 +34,7 @@ export function defaultConfig(): AppConfig {
     fleetWindowHours: 24,
     port: 4319,
     theme: "auto",
+    linkBrowser: { app: "Brave Browser", profileDirectory: "" },
   };
 }
 

@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import type { LinkBrowser } from "./config.js";
 import type { Client, Provider } from "./types.js";
 
 const run = promisify(execFile);
@@ -70,4 +71,12 @@ export async function openSession(
 
 export async function revealFile(filePath: string): Promise<void> {
   await run("open", ["-R", filePath]);
+}
+
+export async function openLink(url: string, browser: LinkBrowser): Promise<void> {
+  if (browser.profileDirectory === "") {
+    await run("open", [url]);
+    return;
+  }
+  await run("open", ["-na", browser.app, "--args", `--profile-directory=${browser.profileDirectory}`, url]);
 }
