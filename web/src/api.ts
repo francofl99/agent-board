@@ -41,3 +41,6 @@ export const sendReply = (id: string, text: string) =>
 
 export const openLink = (url: string) =>
   req<{ ok: boolean }>("/api/open-link", { method: "POST", body: JSON.stringify({ url }) });
+
+export const launchAutopilot = () =>
+  req<{ app: string; cwd: string; command: string }>("/api/autopilot/launch", { method: "POST", body: "{}" });

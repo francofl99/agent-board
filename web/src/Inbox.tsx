@@ -1,5 +1,5 @@
 import { type MouseEvent, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
-import { getSlack, openLink } from "./api";
+import { getSlack, launchAutopilot, openLink } from "./api";
 import { ago, clock } from "./format";
 import { SOURCE_NAME, SourceIcon } from "./SourceIcon";
 import type { InboxItem, InboxResponse, InboxSource, InboxStatus } from "./types";
@@ -116,6 +116,11 @@ function Row({ item, selected, open, draft, onToggle, onDraft, onDecide, slackRe
         {item.sent !== null && <span className="itag ok">enviado {clock(item.sent.at)}</span>}
         {remindTag(item) !== undefined && <span className="itag">{remindTag(item)}</span>}
         {tag !== undefined && <span className="itag">{tag}</span>}
+        {item.autopilot !== undefined && !resolved(item) && (
+          <span className={`itag${item.autopilot.ready ? " ok" : ""}`} title={item.autopilot.reason}>
+            {item.autopilot.ready ? "la toma el autopilot" : `autopilot: ${item.autopilot.reason}`}
+          </span>
+        )}
         <span className="iwhere">{item.where}</span>
         <span className="iwho">{item.who}</span>
         <span className="itime">{item.since === "" ? "—" : ago(item.since)}</span>
@@ -280,6 +285,19 @@ export function Inbox({ data, error, tabs, onDecide, onSend, onSettings, active 
   const [selId, setSelId] = useState<string | null>(null);
   const [opened, setOpened] = useState<Record<string, boolean>>({});
   const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const [launch, setLaunch] = useState<{ state: "idle" | "busy" | "ok" | "error"; text: string }>({
+    state: "idle",
+    text: "",
+  });
+  const startAutopilot = async () => {
+    setLaunch({ state: "busy", text: "" });
+    try {
+      const r = await launchAutopilot();
+      setLaunch({ state: "ok", text: `Abierto en ${r.app}: ${r.command}` });
+    } catch (e) {
+      setLaunch({ state: "error", text: (e as Error).message.replace(/^\d+ /, "") });
+    }
+  };
   const search = useRef<HTMLInputElement>(null);
 
   const items = data?.items ?? [];
@@ -290,12 +308,17 @@ export function Inbox({ data, error, tabs, onDecide, onSend, onSettings, active 
   }, [items, filter, query]);
 
   const pinned = visible.filter((i) => i.pinned && !resolved(i));
-  const now = visible.filter((i) => i.now && !i.pinned && !resolved(i));
+  const grouped = (i: InboxItem) => i.group === "autopilot";
+  const auto = visible.filter((i) => grouped(i) && !i.pinned && !resolved(i));
+  const now = visible.filter((i) => i.now && !i.pinned && !grouped(i) && !resolved(i));
   const sections = SECTIONS.filter((s) => filter === "all" || s.key === filter)
-    .map((s) => ({ ...s, rows: visible.filter((i) => i.source === s.key && !i.now && !i.pinned && !resolved(i)) }))
+    .map((s) => ({
+      ...s,
+      rows: visible.filter((i) => i.source === s.key && !i.now && !i.pinned && !grouped(i) && !resolved(i)),
+    }))
     .filter((s) => s.rows.length > 0 || (s.key !== "alert" && filter === s.key) || (filter === "all" && s.key !== "alert"));
   const done = visible.filter(resolved);
-  const flat = [...pinned, ...now, ...sections.flatMap((s) => s.rows), ...done];
+  const flat = [...pinned, ...now, ...auto, ...sections.flatMap((s) => s.rows), ...done];
   const sel = flat.find((i) => i.id === selId) ?? flat[0];
 
   const toggle = (id: string) => {
@@ -469,6 +492,34 @@ export function Inbox({ data, error, tabs, onDecide, onSend, onSettings, active 
                     <span className="rule" />
                   </div>
                   {now.map(row)}
+                </section>
+              )}
+
+              {(auto.length > 0 || (report?.notes.autopilot !== undefined && (filter === "all" || filter === "jira"))) && (
+                <section className="lgroup">
+                  <div className="igrouphead jira">
+                    <SourceIcon source="jira" />
+                    <span className="nm">Autopilot · label Claude</span>
+                    <span className="n">{auto.length}</span>
+                    <span className="rule" />
+                    <span className="iacts">
+                      <button
+                        className="primary"
+                        disabled={launch.state === "busy"}
+                        title="Abre una tab de terminal y corre /jira-autopilot"
+                        onClick={startAutopilot}
+                      >
+                        {launch.state === "busy"
+                          ? "Abriendo…"
+                          : `Lanzar jira-autopilot · ${auto.filter((i) => i.autopilot?.ready === true).length} listas`}
+                      </button>
+                    </span>
+                  </div>
+                  {auto.length === 0 && <p className="iempty">{report?.notes.autopilot}</p>}
+                  {auto.map(row)}
+                  {auto.length > 0 && report?.notes.autopilot && <p className="ifoot">{report.notes.autopilot}</p>}
+                  {launch.state === "ok" && <p className="ifoot">{launch.text}. Confirmá el diálogo de confianza en cada tab que abra.</p>}
+                  {launch.state === "error" && <p className="ierr">No se pudo abrir la terminal: {launch.text}</p>}
                 </section>
               )}
 
