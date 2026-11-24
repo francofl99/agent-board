@@ -114,6 +114,9 @@ export interface InboxItem {
   findings: { severity: string; location: string; text: string }[];
   action: InboxAction | null;
   executed: { at: string; result: string } | null;
+  // "autopilot" = a Jira issue labelled Claude; the routine says whether /jira-autopilot would take it.
+  group?: "autopilot";
+  autopilot?: { ready: boolean; reason: string };
   status: InboxStatus;
   approved: boolean;
   approvedText: string;
@@ -135,7 +138,7 @@ export interface InboxResponse {
     generatedAt: string | null;
     nextRunAt: string | null;
     sourcesDown: { source: string; error: string }[];
-    notes: Partial<Record<InboxSource, string>>;
+    notes: Partial<Record<InboxSource | "autopilot", string>>;
   };
   items: InboxItem[];
 }

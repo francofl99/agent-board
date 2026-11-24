@@ -44,6 +44,36 @@ async function openTerminal(cwd: string, command: string): Promise<void> {
   await run("osascript", ["-e", script]);
 }
 
+async function itermRunning(): Promise<boolean> {
+  return run("pgrep", ["-x", "iTerm2"]).then(
+    () => true,
+    () => false
+  );
+}
+
+// jira-autopilot dispatches its workers as iTerm tabs, so it starts in one too; Terminal can
+// only open a window without accessibility permission, hence the fallback stays a window.
+export async function openTerminalTab(cwd: string, command: string): Promise<"iTerm" | "Terminal"> {
+  if (!(await itermRunning())) {
+    await openTerminal(cwd, command);
+    return "Terminal";
+  }
+  const shell = appleScriptString(`cd ${JSON.stringify(cwd)} && ${command}`);
+  const script = [
+    'tell application "iTerm"',
+    "activate",
+    "if (count of windows) = 0 then",
+    "create window with default profile",
+    "else",
+    "tell current window to create tab with default profile",
+    "end if",
+    `tell current session of current window to write text ${shell}`,
+    "end tell",
+  ].join("\n");
+  await run("osascript", ["-e", script]);
+  return "iTerm";
+}
+
 export async function openSession(
   target: OpenTarget,
   sessionId: string,

@@ -12,6 +12,13 @@ export interface AppConfig {
   port: number;
   theme: string; // a theme id, or "auto" to follow the system appearance
   linkBrowser: LinkBrowser;
+  autopilot: Autopilot;
+}
+
+// What the Bandeja's launch button runs, in a new terminal tab.
+export interface Autopilot {
+  cwd: string;
+  command: string;
 }
 
 // Empty profileDirectory hands links to macOS, which picks whichever profile was used last.
@@ -35,6 +42,7 @@ export function defaultConfig(): AppConfig {
     port: 4319,
     theme: "auto",
     linkBrowser: { app: "Brave Browser", profileDirectory: "" },
+    autopilot: { cwd: path.join(home, "Projects", "Picallex", "picallex"), command: "claude '/jira-autopilot'" },
   };
 }
 

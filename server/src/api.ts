@@ -4,7 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { loadAppConfig, saveAppConfig } from "./config.js";
 import { scanFleet } from "./fleet.js";
-import { defaultTarget, openLink, openSession, optionsFor, revealFile, type OpenTarget } from "./open.js";
+import { defaultTarget, openLink, openSession, openTerminalTab, optionsFor, revealFile, type OpenTarget } from "./open.js";
 import { findItem, inboxView, recordSent, saveDecision, type InboxStatus } from "./inbox.js";
 import { addNote, loadNotes } from "./notes.js";
 import { sendReply, slackConfigured, targetOf } from "./slack.js";
@@ -187,6 +187,21 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
     }
     await openLink(link, (await loadAppConfig()).linkBrowser);
     json(res, 200, { ok: true });
+    return;
+  }
+
+  if (p === "/api/autopilot/launch" && req.method === "POST") {
+    if (!fromBoard(req, cfgPort)) {
+      json(res, 403, { error: "only the board can launch the autopilot" });
+      return;
+    }
+    const { cwd, command } = (await loadAppConfig()).autopilot;
+    try {
+      const app = await openTerminalTab(cwd, command);
+      json(res, 200, { app, cwd, command });
+    } catch (e) {
+      json(res, 502, { error: (e as Error).message });
+    }
     return;
   }
 

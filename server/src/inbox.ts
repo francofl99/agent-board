@@ -39,6 +39,9 @@ export interface InboxItem {
   findings: { severity: string; location: string; text: string }[];
   action: InboxAction | null;
   executed: { at: string; result: string } | null;
+  // "autopilot" = a Jira issue labelled Claude; the routine says whether /jira-autopilot would take it.
+  group?: "autopilot";
+  autopilot?: { ready: boolean; reason: string };
   // Set by the routine on a note's item when the source shows it was handled.
   resolved?: boolean;
 }
@@ -47,7 +50,7 @@ export interface InboxReport {
   generatedAt: string | null;
   nextRunAt: string | null;
   sourcesDown: { source: string; error: string }[];
-  notes: Partial<Record<InboxSource, string>>;
+  notes: Partial<Record<InboxSource | "autopilot", string>>;
   items: InboxItem[];
 }
 
